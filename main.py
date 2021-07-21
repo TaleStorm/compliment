@@ -1,73 +1,156 @@
 import asyncio
-import datetime
-import logging
 import os
 import time
 from datetime import datetime as dt
-from datetime import timedelta
 from random import randint
 
-import aiogram
-from aiogram.utils.exceptions import TelegramAPIError
+import aioredis
+from aiogram import Bot, Dispatcher
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.utils import executor
 from dotenv import load_dotenv
 
 import constants
-from database import (get_birthday_status, get_day_parts, get_message,
-                      get_user, set_congratulate_status, set_last_message,
-                      update_message_time)
 
 load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
-CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
-DB_USERNAME = os.environ.get('DB_USERNAME')
-DB_PASSWORD = os.environ.get('DB_PASSWORD')
-if TELEGRAM_TOKEN is None or CHAT_ID is None:
+if TELEGRAM_TOKEN is None:
     raise SystemExit('Не удалось получить токены')
-if DB_USERNAME is None or DB_PASSWORD is None:
-    raise SystemExit('Не удалость полчить данные '
-                     'для доступа к БД')
 
 
-async def set_message(chat_id):
-    """Is used to set message and random time for sending to user."""
-    hour_now = dt.now().time().hour
-    day_parts = get_day_parts()
-    last_message = get_user(chat_id)['last_message']
-    if last_message is not None:
-        last_message = last_message.hour
+bot = Bot(token=TELEGRAM_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot=bot, storage=storage)
 
-    for part in day_parts:
-        hour_start = part['hour_start']
-        hour_end = part['hour_end']
-        if (hour_now in range(hour_start, hour_end) and
-                last_message not in range(hour_start, hour_end)):
-            random_hour = randint(
-                hour_now,
-                hour_end
-            )
-            random_minute = randint(
-                0,
-                60
-            )
-            message_time = datetime.time(
-                hour=random_hour,
-                minute=random_minute
-            )
-            message_text = random_message(part['id'])
-            update_message_time(
+
+class Form(StatesGroup):
+    name = State()
+    birthday = State()
+    yes_or_not = State()
+
+
+@dp.message_handler(commands='start')
+async def cmd_start(message):
+    """
+    Точка начала диалога.
+    """
+    await Form.name.set()
+
+    await message.reply('Привет! Как тебя зовут?')
+
+
+@dp.message_handler(state=Form.name)
+async def process_name(message, state):
+    """
+    Установка имени пользователя.
+    :param message:
+    :param state:
+    :return:
+    """
+    async with state.proxy() as data:
+        data['name'] = message.text
+        data['chat_id'] = message.chat.id
+    await Form.next()
+    await message.reply('Введи дату своего рождения в формате "ДД-ММ-ГГ"')
+
+
+@dp.message_handler(state=Form.birthday)
+async def process_birthday(message, state):
+    """
+    Установка дня рождения.
+    :param message:
+    :param state:
+    :return:
+    """
+    birthday = dt.strptime(message.text, '%d-%m-%y')
+    async with state.proxy() as data:
+        data['birthday'] = birthday
+        data['congratulations'] = False
+    await Form.next()
+    await message.reply('Введи любое сообщение что бы начать!')
+
+
+@dp.message_handler(state=Form.yes_or_not)
+async def message_loop(message, state):
+    """
+    Основной цикл бота.
+    :param message:
+    :param state:
+    :return:
+    """
+    await message.reply('С этого момента ты будешь получать сообщения!')
+
+    redis_connection = await aioredis.create_connection("redis://localhost")
+    redis = await aioredis.Redis(pool_or_conn=redis_connection)
+
+    async with state.proxy() as data:
+        chat_id = data['chat_id']
+        birthday = data['birthday']
+
+    current_state = await state.get_state()
+
+    while current_state is not None:
+        current_state = await state.get_state()
+        date_today = dt.now()
+        time_now = date_today.time()
+        table = f'user:list:{chat_id}'
+        messages = await redis.hgetall(table, encoding='utf-8')
+        async with state.proxy() as data:
+            congratulations = data['congratulations']
+            if (date_today.day == birthday.day
+                    and date_today.month == birthday.month):
+                await happy_birthday(state, congratulations, chat_id)
+            elif congratulations:
+                data['congratulations'] = False
+        if time_now < constants.MORNING['hour_start']:
+            if messages:
+                for message in messages.keys():
+                    redis.hdel(table, message)
+            await asyncio.sleep(1200)
+            continue
+
+        if not messages:
+            await set_messages(table, redis)
+        time_now_str = time_now.strftime('%H:%m')
+        message_now = await redis.hget(table, time_now_str)
+        if message_now:
+            await send_with_typing(
+                bot_client=bot,
                 chat_id=chat_id,
-                message_time=message_time,
-                message_text=message_text
+                message=message_now
             )
+            redis.hdel(table, time_now_str)
+
+        await asyncio.sleep(30)
 
 
-def random_message(day_part_id):
-    messages = get_message(day_part_id)
-    if type(messages) is dict:
-        return messages['message']
-    random_index = randint(0, len(messages))
-    return messages[random_index]['message']
+async def set_messages(table, redis):
+    """
+    Создает список сообщений на день с временем отправки.
+    :param table:
+    :param redis:
+    :return:
+    """
+    for day_part in constants.DAY_PARTS:
+        hour_start = day_part['hour_start']
+        hour_end = day_part['hour_end']
+        if hour_end < dt.now().time():
+            continue
+        random_hour = randint(
+            hour_start.hour,
+            hour_end.hour
+        )
+        random_minute = randint(
+            0,
+            60
+        )
+        if random_minute < 10:
+            random_minute = '0' + str(random_minute)
+        message_time = f'{random_hour}:{random_minute}'
+        message = day_part['message']
+        await redis.hset(table, message_time, message)
 
 
 async def send_with_typing(bot_client, chat_id, message, typing_time=5):
@@ -83,88 +166,17 @@ async def send_with_typing(bot_client, chat_id, message, typing_time=5):
     )
 
 
-def parse_birthday(birthday):
-    """Is used to set current year in birthday for match with current date."""
-    day = birthday.day
-    month = birthday.month
-    year = dt.now().year
-    return dt(
-        year=year,
-        month=month,
-        day=day)
-
-
-async def happy_birthday(bot_client, user_id, chat_id):
-    """Is used to send HB congratulations."""
-    status = get_birthday_status(user_id)
-    if status['congratulate']:
-        return None
-    await send_with_typing(
-        bot_client=bot_client,
-        chat_id=chat_id,
-        message=constants.BIRTHDAY
-    )
-    return set_congratulate_status(
-        user_id=user_id,
-        boolean=True
-    )
-
-
-async def main():
-    bot = aiogram.Bot(token=TELEGRAM_TOKEN)
-    try:
-        await bot.get_me()
-    except TelegramAPIError:
-        logging.exception('Проблема с созданием бота')
-        raise SystemExit('Не удалось создать бота')
-
-    while True:
-        try:
-            user_info = get_user(CHAT_ID)
-            message_time = user_info['message_time']
-            date_today = dt.now()
-            birthday = parse_birthday(user_info['birthday'])
-
-            if date_today.date() == birthday:
-                await happy_birthday(
-                    bot_client=bot,
-                    chat_id=CHAT_ID,
-                    user_id=user_info['id']
-                )
-            elif date_today.date() == (birthday + timedelta(days=1)):
-                set_congratulate_status(
-                    user_id=user_info['id'],
-                    boolean=False
-                )
-
-            if message_time is None:
-                await set_message(CHAT_ID)
-            elif (message_time.strftime('%H:%M')
-                  == date_today.time().strftime('%H:%M')
-                    or message_time < date_today.time()):
-                message = user_info['message_text']
-                await send_with_typing(
-                    bot_client=bot,
-                    chat_id=CHAT_ID,
-                    message=message
-                )
-                set_last_message(
-                    chat_id=CHAT_ID
-                )
-
-            time.sleep(constants.REQUEST_RATE)
-
-        except Exception as e:
-            logging.exception(e)
-            time.sleep(constants.ERROR_REQUEST_RATE)
+async def happy_birthday(state, status, chat_id):
+    """Отправляет поздравление с ДР, если оно еще не отправлялось."""
+    if not status:
+        async with state.proxy() as data:
+            data['congratulations'] = True
+        await send_with_typing(
+            bot_client=bot,
+            chat_id=chat_id,
+            message=constants.BIRTHDAY
+        )
 
 
 if __name__ == '__main__':
-    logging.basicConfig(
-        level=logging.DEBUG,
-        filename='homework.log',
-        filemode='w',
-        format='%(asctime)s, %(levelname)s, %(name)s, %(message)s',
-    )
-    logging.debug('Бот запущен')
-    asyncio.run(main())
+    executor.start_polling(dp, skip_updates=True)
