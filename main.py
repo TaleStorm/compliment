@@ -5,9 +5,10 @@ from datetime import datetime as dt
 from random import randint
 
 import aioredis
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher.filters import Text
 from aiogram.utils import executor
 from dotenv import load_dotenv
 
@@ -84,6 +85,19 @@ async def message_loop(message, state):
 
     redis_connection = await aioredis.create_connection("redis://localhost")
     redis = await aioredis.Redis(pool_or_conn=redis_connection)
+    if message.text.lower() == "нет":
+        markup = types.ReplyKeyboardRemove()
+
+        await bot.send_message(
+            message.chat.id,
+            "Ну, на нет и суда нет. Зачем это все было тогда?",
+            reply_markup=markup
+        )
+        await state.finish()
+    else:
+        async with state.proxy() as data:
+            # Записываем ответ пользователя в соответствующий state.
+            data['answer'] = message.text
 
     async with state.proxy() as data:
         chat_id = data['chat_id']
@@ -97,6 +111,9 @@ async def message_loop(message, state):
         time_now = date_today.time()
         table = f'user:list:{chat_id}'
         messages = await redis.hgetall(table, encoding='utf-8')
+        async with state.proxy() as data:
+            if data['answer'] is None:
+                break
         async with state.proxy() as data:
             congratulations = data['congratulations']
             if (date_today.day == birthday.day
@@ -121,8 +138,7 @@ async def message_loop(message, state):
                 chat_id=chat_id,
                 message=message_now
             )
-            redis.hdel(table, time_now_str)
-
+            await redis.hdel(table, time_now_str)
         await asyncio.sleep(30)
 
 
@@ -159,7 +175,7 @@ async def send_with_typing(bot_client, chat_id, message, typing_time=5):
         chat_id=chat_id,
         action='typing'
     )
-    time.sleep(typing_time)
+    await asyncio.sleep(typing_time)
     await bot_client.send_message(
         chat_id=chat_id,
         text=message
@@ -177,6 +193,23 @@ async def happy_birthday(state, status, chat_id):
             message=constants.BIRTHDAY
         )
 
+
+@dp.message_handler(state='*', commands='cancel')
+@dp.message_handler(Text(equals='cancel', ignore_case=True), state='*')
+async def cancel_handler(message, state):
+    """
+    Обработчик команды "/cancel". Удаляет все данные по state.
+    """
+    current_state = await state.get_state()
+    if current_state is None:
+        return
+
+    await state.finish()
+    # Задаем доп. значения для ответа. Необходимо для двойной проверки цикла на выход из него.
+    async with state.proxy() as data:
+        data['answer'] = None
+    markup = types.ReplyKeyboardRemove()
+    await message.reply("Алоха!(что означает 'привет' и 'пока' на гавайском)", reply_markup=markup)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
