@@ -35,9 +35,9 @@ NIGHT = {
     'message': 'Спокойной ночи'
 }
 
-DAY_PARTS = [
+DAY_PARTS = (
     MORNING,
     DAY,
     EVENING,
     NIGHT
-]
+)
