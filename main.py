@@ -2,6 +2,8 @@ import asyncio
 import os
 from datetime import datetime as dt
 from random import randint
+from data_manager import DataManager
+from users import User
 
 import aioredis
 from aiogram import Bot, Dispatcher
@@ -18,6 +20,13 @@ logger.add('logs.json', format='{time} {level} {message}',
            level='INFO', rotation='50 KB', compression='zip', serialize=True)
 
 load_dotenv()
+
+data_manager = DataManager('sqlite:///sqlite3.db')
+data_manager.create_table(User)
+
+for instance in data_manager.session.query(User).order_by(User.id):
+    print (instance.name, instance.id, instance.chat_id)
+
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 if TELEGRAM_TOKEN is None:
@@ -110,6 +119,8 @@ async def process_birthday(message, state):
         async with state.proxy() as data:
             data['birthday'] = birthday
             data['congratulations'] = False
+            user = User(data['name'], data['birthday'], message.chat.id)
+            data_manager.add(user)
     await Form.next()
     await message.reply('Введи любое сообщение что бы начать!')
 
