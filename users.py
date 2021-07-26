@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -16,4 +16,4 @@ class User(Base):
         self.chat_id = chat_id
 
     def __repr__(self):
-        return "<User('%s','%s', '%s')>" % (self.name, self.birthday, self.chat_id)
+        return f"<User имя: {self.name}, день рождения: {self.birthday}, chat_id = {self.chat_id}"

@@ -21,6 +21,3 @@ class DataManager:
     def getById(self, obj, id):
         for result in self.session.query(obj).filter_by(id=id):
             return result
-
-
-
