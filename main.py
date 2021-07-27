@@ -6,8 +6,9 @@ from random import randint
 import aioredis
 from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher.filters import Text
+from aiogram.dispatcher.filters.state import State, StatesGroup
+from aiogram.dispatcher.middlewares import LifetimeControllerMiddleware
 from aiogram.utils import executor
 from dotenv import load_dotenv
 from loguru import logger
@@ -18,6 +19,36 @@ logger.add('logs.json', format='{time} {level} {message}',
            level='INFO', rotation='50 KB', compression='zip', serialize=True)
 
 load_dotenv()
+
+
+class RedisMiddleware(LifetimeControllerMiddleware):
+    def __init__(self):
+        super().__init__()
+
+    async def pre_process(self, obj, data, *args):
+        pool = await aioredis.create_pool(
+            "redis://localhost",
+            encoding='utf-8'
+        )
+        data['redis'] = aioredis.Redis(pool_or_conn=pool)
+
+
+class KeySchema:
+    """
+    Возвращает название таблиц для Redis.
+    """
+    def user_messages_key(self, chat_id):
+        """Хэш-таблица с сообщениями."""
+        return f'user:list:{chat_id}'
+
+    def users_set(self):
+        """Список юзеров, использующих бота."""
+        return 'users:set'
+
+    def user_info(self, chat_id):
+        """Хэш-информация о юзере."""
+        return f'user:info:{chat_id}'
+
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 if TELEGRAM_TOKEN is None:
@@ -46,6 +77,26 @@ class Form(StatesGroup):
     yes_or_not = State()
 
 
+async def on_startup(dispatcher):
+    """
+    Рассылает сообщение о перезапуске бота всем юзерам.
+    """
+    pool = await aioredis.create_pool(
+        'redis://localhost', encoding='utf-8')
+    redis = aioredis.Redis(pool_or_conn=pool)
+    members = await redis.smembers(KeySchema().users_set())
+    for member in members:
+        await dispatcher.bot.send_message(
+            chat_id=int(member),
+            text='Привет.\n'
+                 'Мы перезапускали бота.\n'
+                 'Если хочешь продолжить получать сообщения - '
+                 'введи /continue'
+        )
+    pool.close()
+    await pool.wait_closed()
+
+
 @dp.message_handler(commands='start')
 async def cmd_start(message, state):
     """
@@ -61,11 +112,34 @@ async def cmd_start(message, state):
 
 @dp.message_handler(state='*', commands='continue')
 @dp.message_handler(Text(equals='cancel', ignore_case=True), state='*')
-async def cmd_continue(message, state):
+async def cmd_continue(message, state, redis):
+    """Возвращает в основной цикл после перезапуска бота."""
     async with state.proxy() as data:
-        if data['answer'] is not None:
+        if data.get('answer') is not None:
             await message.reply('Кажется ты уже активировал бота')
             return
+    members = await redis.smembers(KeySchema().users_set())
+    chat_id = message.chat.id
+
+    if str(chat_id) in members:
+        info = await redis.hgetall(KeySchema().user_info(chat_id))
+        name = info.get('name')
+        birthday = info.get('birthday')
+        birthday_validate = await validate_birthday(birthday)
+        if (name is None or birthday is None
+                or birthday is None):
+            await message.reply('Что-то случилось с данными. '
+                                'Заполните их заново. '
+                                'Введите имя')
+            await Form.name.set()
+            await process_name()
+        async with state.proxy() as data:
+            data['name'] = name
+            data['birthday'] = birthday_validate
+            data['congratulations'] = False
+            data['answer'] = True
+        await Form.yes_or_not.set()
+        await message.reply('Введи любое сообщение что бы начать!')
 
 
 @dp.message_handler(state='*', commands='cancel')
@@ -81,75 +155,81 @@ async def cancel_handler(message, state):
     async with state.proxy() as data:
         data['answer'] = None
     await message.reply("Пока!\n"
-                        "Если захочешь сново получать сообщения - введи /start")
+                        "Если захочешь сново получать сообщения - "
+                        "введи /start")
 
 
 @dp.message_handler(state=Form.name)
-async def process_name(message, state):
+async def process_name(message, state, redis):
     """
     Установка имени пользователя.
     """
     async with state.proxy() as data:
         data['name'] = message.text
+    await redis.hset(
+        KeySchema().user_info(message.chat.id),
+        'name', message.text
+    )
 
     await Form.next()
     await message.reply('Введи дату своего рождения в формате "ДД-ММ-ГГ"')
 
 
 @dp.message_handler(state=Form.birthday)
-async def process_birthday(message, state):
+async def process_birthday(message, state, redis):
     """
     Установка дня рождения.
     """
-    try:
-        birthday = dt.strptime(message.text, '%d-%m-%y')
-    except ValueError:
-        await bot.send_message(message.chat.id, 'Введите дату в правильном формате')
+    birthday = await validate_birthday(date=message.text)
+    if birthday is None:
+        await bot.send_message(
+            message.chat.id,
+            'Введите дату в правильном формате'
+        )
         return
-    else:
-        async with state.proxy() as data:
-            data['birthday'] = birthday
-            data['congratulations'] = False
+    async with state.proxy() as data:
+        data['birthday'] = birthday
+        data['congratulations'] = False
+    await redis.hset(
+        KeySchema().user_info(message.chat.id),
+        'birthday', message.text
+    )
     await Form.next()
     await message.reply('Введи любое сообщение что бы начать!')
 
 
 @dp.message_handler(state=Form.yes_or_not)
-async def message_loop(message, state):
+async def message_loop(message, state, redis):
     """
     Основной цикл бота.
     """
     await message.reply('С этого момента ты будешь получать сообщения!')
 
-    redis_connection = await aioredis.create_connection("redis://localhost")
-    redis = await aioredis.Redis(pool_or_conn=redis_connection)
     await redis.sadd('users:set', message.chat.id)
 
     async with state.proxy() as data:
-        birthday = data['birthday']
         data['answer'] = True
 
     current_state = await state.get_state()
 
     while current_state is not None:
+        chat_id = message.chat.id
+        table = KeySchema().user_messages_key(chat_id=chat_id)
+        messages = await redis.hgetall(table)
         async with state.proxy() as data:
             if data.get('answer') is None:
                 await redis.srem('users:set', message.chat.id)
+                for message in messages.keys():
+                    await redis.hdel(table, message)
                 break
-        chat_id = message.chat.id
         current_state = await state.get_state()
         date_today = dt.now()
         time_now = date_today.time()
-        table = f'user:list:{chat_id}'
-        messages = await redis.hgetall(table, encoding='utf-8')
-        async with state.proxy() as data:
-            congratulations = data['congratulations']
-            date_today_str = date_today.strftime('%d-%m')
-            birthday_str = birthday.strftime('%d-%m')
-            if date_today_str == birthday_str:
-                await happy_birthday(state, congratulations, chat_id)
-            elif congratulations:
-                data['congratulations'] = False
+        await birthday_check(
+            state=state,
+            chat_id=chat_id,
+            date_today=date_today
+        )
         if time_now < constants.MORNING['hour_start']:
             if messages:
                 for message in messages.keys():
@@ -159,7 +239,7 @@ async def message_loop(message, state):
 
         if not messages:
             await set_messages(table, redis)
-        time_now_str = time_now.strftime('%H:%m')
+        time_now_str = time_now.strftime('%H:%M')
         message_now = await redis.hget(table, time_now_str)
         if message_now:
             await send_with_typing(
@@ -182,7 +262,7 @@ async def set_messages(table, redis):
             continue
         random_hour = randint(
             hour_start.hour,
-            hour_end.hour
+            hour_end.hour - 1
         )
         random_minute = randint(
             0,
@@ -208,17 +288,33 @@ async def send_with_typing(bot_client, chat_id, message, typing_time=5):
     )
 
 
-async def happy_birthday(state, status, chat_id):
-    """Отправляет поздравление с ДР, если оно еще не отправлялось."""
-    if not status:
-        async with state.proxy() as data:
+async def birthday_check(state, chat_id, date_today):
+    """Проверяет наступление ДР пользователя и отправляет поздравление."""
+    async with state.proxy() as data:
+        birthday = data['birthday']
+        congratulations = data['congratulations']
+        date_today_str = date_today.strftime('%d-%m')
+        birthday_str = birthday.strftime('%d-%m')
+        if (date_today_str == birthday_str and
+                not congratulations):
             data['congratulations'] = True
-        await send_with_typing(
-            bot_client=bot,
-            chat_id=chat_id,
-            message=constants.BIRTHDAY
-        )
+            await send_with_typing(
+                bot_client=bot,
+                chat_id=chat_id,
+                message=constants.BIRTHDAY
+            )
+        elif congratulations:
+            data['congratulations'] = False
 
+
+async def validate_birthday(date):
+    try:
+        birthday = dt.strptime(date, '%d-%m-%y')
+    except ValueError:
+        return None
+    else:
+        return birthday
 
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    dp.middleware.setup(RedisMiddleware())
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
