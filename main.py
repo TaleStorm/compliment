@@ -3,7 +3,7 @@ import os
 from datetime import datetime as dt
 from random import randint
 from data_manager import DataManager
-from users import User
+from example import User
 
 import aioredis
 from aiogram import Bot, Dispatcher
@@ -22,10 +22,15 @@ logger.add('logs.json', format='{time} {level} {message}',
 load_dotenv()
 
 data_manager = DataManager('sqlite:///sqlite3.db')
-data_manager.create_table(User)
+data_manager._create_table(User)
 
-for instance in data_manager.session.query(User).order_by(User.id):
-    print (instance.name, instance.id, instance.chat_id)
+
+us =data_manager.get_by_id(User,15)
+print(us)
+
+data_manager.del_obj(us)
+
+data_manager.get_by_all(User)
 
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -119,10 +124,19 @@ async def process_birthday(message, state):
         async with state.proxy() as data:
             data['birthday'] = birthday
             data['congratulations'] = False
-            user = User(data['name'], data['birthday'], message.chat.id)
-            data_manager.add(user)
+
     await Form.next()
     await message.reply('Введи любое сообщение что бы начать!')
+
+
+@dp.message_handler(state="*")
+async def db_add_user(message,state):
+    """
+    Заполнение таблицы users
+    """
+    async with state.proxy() as data:
+        user = User(data['name'], data['birthday'], message.chat.id)
+        data_manager.add(user)
 
 
 @dp.message_handler(state=Form.yes_or_not)
