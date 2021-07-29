@@ -1,4 +1,7 @@
 from example import User, ContactsUser
+from data_manager import DataManager
+#from main import KeySchema
+
 from loguru import logger
 from dotenv import load_dotenv
 from aiogram.utils import executor
@@ -8,12 +11,11 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram import Bot, Dispatcher
 import aioredis
-from data_manager import DataManager
+
 from random import randint
 from datetime import datetime as dt
 import os
 import asyncio
-
 
 # class RedisMiddleware(LifetimeControllerMiddleware):
 #     def __init__(self):
@@ -25,7 +27,6 @@ import asyncio
 #             encoding='utf-8'
 #         )
 #         data['redis'] = aioredis.Redis(pool_or_conn=pool)
-
 
 # class KeySchema:
 #     """
@@ -49,6 +50,8 @@ pool = aioredis.create_pool("redis://localhost", encoding='utf-8')
 redis = aioredis.Redis(pool_or_conn=pool)
 print('data', type(redis))
 
+us = redis.smembers(KeySchema().users_set())
+print(us)
 
 def db_add_user(message, state):
     """
