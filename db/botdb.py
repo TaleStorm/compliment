@@ -61,7 +61,7 @@ def db_add_user(message, state):
         data_manager.add(user)
 
 
-data_manager = DataManager('sqlite:///sqlite3.db')
+data_manager = DataManager('sqlite:///db/sqlite3.db')
 data_manager._create_table(User)
 data_manager._create_table(ContactsUser)
 
