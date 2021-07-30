@@ -34,6 +34,9 @@ class DataManager:
         self.session.commit()
 
     def del_obj(self, obj):
+        '''
+        Удаляет объект obj
+        '''
         self.session.delete(obj)
         self.session.commit()
 
@@ -48,8 +51,33 @@ class DataManager:
         except:
             print('Error in def update_state')
 
-    # def get_by_all(self, obj):
-    #     for ins in self.session.query(obj).order_by(obj.id):
-    #         print(ins)
 
-    #     print(self.session.query(obj).all())
+    def update_all(self, obj, id, new_data):
+        '''
+        Изменяет объекта по id из словаря new_data
+        {'атрибут obj':'новое значение атрибута'}
+        new_data - dict
+        '''
+        try:
+            val = self.session.query(obj).get(id)
+            for k, v in new_data.items():
+                setattr(val, k, v)
+            self.session.commit()
+        except:
+            print('Error in def update_all')
+
+    def update_ch(self, obj, ch_id, new_data):
+        '''
+        Изменяет объекта по chat_id из словаря new_data
+        {'атрибут obj':'новое значение атрибута'}
+        new_data - dict
+        '''
+        try:
+            vall = self.session.query(obj).filter(obj.chat_id == ch_id).all()
+            print(vall)
+            for i in vall:
+                for k, v in new_data.items():
+                    setattr(i, k, v)
+                self.session.commit()
+        except:
+            print('Error in def update_ch')
