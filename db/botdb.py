@@ -1,5 +1,5 @@
+
 import aioredis
-import os
 import asyncio
 
 from example import User, ContactsUser
@@ -7,21 +7,29 @@ from data_manager import DataManager
 from main import KeySchema
 
 
-pool = aioredis.create_pool("redis://localhost", encoding='utf-8')
-redis = aioredis.Redis(pool_or_conn=pool)
-print('data', type(redis))
-
-us = redis.smembers(KeySchema().users_set())
-
-def db_add_user(message, state):
-    """
-    Заполнение таблицы users
-    """
-    with state.proxy() as data:
-        user = User(data['name'], data['birthday'], message.chat.id)
-        dm.add(user)
-
-
 dm = DataManager('sqlite:///db/sqlite3.db')
 dm._create_table(User)
 dm._create_table(ContactsUser)
+
+async def main_r():
+    pool = await aioredis.create_pool('redis://localhost', encoding='utf-8')
+    redis = aioredis.Redis(pool_or_conn=pool)
+
+    members = await redis.smembers(KeySchema().users_set())
+
+    for member in members:
+        ch_id = member
+        user = await redis.hgetall(KeySchema().user_info(ch_id))
+
+        mes = await redis.hgetall(KeySchema().user_messages_key(ch_id))
+        print(mes)
+        if not ch_id in members:
+            dm.add(User(user['name'], ch_id))
+
+    pool.close()
+    await pool.wait_closed()
+
+asyncio.run(main_r())
+
+if __name__== '__main__':
+    dm.get_by_all(User)
