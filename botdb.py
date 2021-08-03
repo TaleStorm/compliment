@@ -2,8 +2,8 @@
 import aioredis
 import asyncio
 
-from example import User, ContactsUser
-from data_manager import DataManager
+from db.example import User, ContactsUser
+from db.data_manager import DataManager
 from main import KeySchema
 
 
@@ -31,5 +31,4 @@ async def main_r():
 
 asyncio.run(main_r())
 
-if __name__== '__main__':
-    dm.get_by_all(User)
+dm.get_by_all(User)

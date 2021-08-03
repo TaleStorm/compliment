@@ -13,9 +13,8 @@ class User(Base):
     chat_id = Column(Integer)
     contacts = relationship("ContactsUser")
 
-    def __init__(self, name, birthday, chat_id):
+    def __init__(self, name, chat_id):
         self.name = name
-        self.birthday = birthday
         self.chat_id = chat_id
 
     def __repr__(self):
