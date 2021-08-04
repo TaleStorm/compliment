@@ -81,9 +81,3 @@ class DataManager:
                 self.session.commit()
         except:
             print('Error in def update_ch')
-
-    def get_by_all(self, obj):
-        for ins in self.session.query(obj).order_by(obj.id):
-            print(ins)
-
-        print(self.session.query(obj).all())
