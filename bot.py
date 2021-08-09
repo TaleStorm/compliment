@@ -1,5 +1,6 @@
 import os
 from datetime import datetime as dt
+import asyncio
 
 import aioredis
 from aiogram import Bot, Dispatcher
@@ -61,10 +62,25 @@ manager = DataManager('sqlite:///test.db', base=Base)
 session = manager.session
 
 
+async def on_startup(dispatcher):
+    active_users = session.query(User).filter(
+        User.is_active == True,
+        User.is_activated == True
+    ).all()
+    for user in active_users:
+        chat_id = user.chat_id
+        await dispatcher.bot.send_message(
+            chat_id=chat_id,
+            message='Мы перезапустили бота.\n'
+                    'Что бы сново получить доступ к '
+                    'его функционалу введите /rerun'
+        )
+
+
 class Form(StatesGroup):
     phone_number = State()
     conf_code = State()
-    yes_or_not = State()
+    activated = State()
 
 
 class FormAddContact(StatesGroup):
@@ -78,25 +94,41 @@ async def cmd_start(message):
     await message.reply('Введите номер телефона')
 
 
-@dp.message_handler(commands='cancel', state=[FormAddContact.number_input, FormAddContact.birthday])
+@dp.message_handler(commands='rerun', state='*')
+async def cmd_rerun(message):
+    user = session.query(User).filter(User.chat_id == message.chat.id).all()
+    if not user:
+        return await message.reply('Вы еще не зарегестрировались.\n'
+                                   'Введите команду /start, что бы '
+                                   'начать регистрацию')
+    await Form.activated.set()
+    await message.reply('Теперь вы сново можете использовать '
+                        'весь функционал бота')
+
+
+@dp.message_handler(
+    commands='cancel',
+    state=[FormAddContact.number_input, FormAddContact.birthday]
+)
 async def cmd_cancel_add_contact(message):
-    await Form.yes_or_not.set()
+    await Form.activated.set()
     return await message.reply('Добавление нового контактка отменено')
 
 
-@dp.message_handler(commands='cancel', state=Form.yes_or_not)
+@dp.message_handler(commands='cancel', state=Form.activated)
 async def cmd_cancel(message, state):
     await state.finish()
     session.execute(
         update(User).
-        where(User.chat_id == message.chat.id).
+        where(User.chat_id == str(message.chat.id)).
         values(is_active=False)
     )
     session.commit()
-    return await message.reply('С этого момента вы не будете получать сообщения')
+    return await message.reply('С этого момента вы не '
+                               'будете получать сообщения')
 
 
-@dp.message_handler(commands='add', state=Form.yes_or_not)
+@dp.message_handler(commands='add', state=Form.activated)
 async def add_contact(message):
     await FormAddContact.number_input.set()
     await message.reply('Отправьте контак из контактной книжки.\n'
@@ -104,7 +136,10 @@ async def add_contact(message):
                         'номер телефона.')
 
 
-@dp.message_handler(content_types=ContentType.CONTACT, state=FormAddContact.number_input)
+@dp.message_handler(
+    content_types=ContentType.CONTACT,
+    state=FormAddContact.number_input
+)
 async def process_contact(message, state):
     async with state.proxy() as data:
         data['contact_id'] = message.contact.user_id
@@ -136,7 +171,7 @@ async def process_contact_birthday(message, state):
         await message.reply('C этого момента дайнный контакт будет получать '
                             'от вас сообщения')
     finally:
-        await Form.yes_or_not.set()
+        await Form.activated.set()
 
 
 @dp.message_handler(state=FormAddContact.number_input)
@@ -164,12 +199,26 @@ async def process_phone(message, state):
 
 @dp.message_handler(state=Form.conf_code)
 async def process_conf_code(message, state, redis):
-    async with state.proxy() as data:
-        code = message.text[0:-1]
-        await redis.hset(
-            'hash:id_conf_code', str(message.chat.id), code
-        )
-    await Form.next()
+    code = message.text[0:-1]
+    await redis.hset(
+        'hash:id_conf_code', str(message.chat.id), code
+    )
+    while True:
+        code_entered = await redis.smembers('set:code_entered')
+        if str(message.chat.id) in code_entered:
+            await asyncio.sleep(5)
+            user = session.query(User).filter(
+                User.chat_id == message.chat.id
+            ).first()
+            if user.is_activated == True:
+                await message.reply('Вы успешно зарегистрировались')
+                await Form.next()
+            else:
+                await message.reply('Код неверный.\n'
+                                    'Введите код еще раз')
+            await redis.srem('set:code_entered', message.chat.id)
+            break
+        await asyncio.sleep(0)
 
 
 async def validate_birthday(date):
