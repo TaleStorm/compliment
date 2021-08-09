@@ -130,5 +130,5 @@ dmypy.json
 
 .idea/
 logs.*
-bot_logic
+bot_logic.py
 *.db
