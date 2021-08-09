@@ -1,117 +1,114 @@
 import asyncio
+from datetime import datetime as dt
+from random import randint
 
-import aioredis
-from pyrogram import Client
+from sqlalchemy import update
+from sql_db.tables import Base, UserContacts
+from sql_db.data_manager import DataManager
+from client_manager import ClientManager
+import constants
 
-
-class ClientManager:
-    def __init__(self):
-        self.clients = {}
-        self.redis = None
-
-    async def add_client(self, client_id, client):
-        self.clients[client_id] = client
-
-    async def on_startup(self):
-        # активирую эту функцию при перезапуске бота
-        # она вытакскивает из редиса активные клиенты, активирует их и добавляет в self.clients
-        pool = await aioredis.create_pool(
-            "redis://localhost",
-            encoding='utf-8'
-        )
-        self.redis = aioredis.Redis(pool_or_conn=pool)
-        # тут мини костыль с присваеванием клиента редиса классу
-        activated_clients_id = await self.redis.smembers('list:activated')
-        # ^тут список чат айди активных юзеров
-        for client_id in activated_clients_id:
-
-            client_info = await self.redis.hgetall(
-                f'hash:activated:{client_id}'
-            )
-            # ^тут по их чат айди вытаскаваются api_id и api_hash
-            api_id = client_info['api_id']
-            api_hash = client_info['api_hash']
-            client = Client(
-                f'{client_id}',
-                api_id=api_id,
-                api_hash=api_hash
-            )
-            await self.add_client(
-                client_id=client_id,
-                client=client
-            )
-
-    async def clients_activate(self):
-        wait_activation = await self.redis.smembers('list:wait_activation')
-        # ^в эту таблицу бот добавляет новых пользователей, которым надо активировать клиент
-        for client_id in wait_activation:
-            # пробегаемся по этим клиентам и активируем их
-            user_info = await self.redis.hgetall(f'hash:wait_activation:{client_id}')
-            api_id = user_info['api_id']
-            api_hash = user_info['api_hash']
-            phone_number = user_info['phone_number']
-            client = Client(
-                f'{client_id}',
-                api_id=int(api_id),
-                api_hash=api_hash,
-                phone_number=phone_number,
-                phone_code_handler=await get_confirmation_code(redis=self.redis, client_id=client_id)
-                # вот тут скорее всего всё будет лочиться, пока юзер не введет код
-            )
-            await client.start()
-            await client.stop()
-            # запускам/выключаем, что бы потом можно было запускать их только по api_id api_hash
-            await self.delete_wait_activation(client_id=client_id)
-            await self.redis.hmset_dict(
-                f'hash:activated:{client_id}',
-                {
-                    'api_id': api_id,
-                    'api_hash': api_hash
-                }
-            )
-            await self.redis.sadd('list:activated', client_id)
-            await self.add_client(f'{client_id}', client)
-
-    async def delete_wait_activation(self, client_id):
-        await self.redis.srem('list:wait_activation', client_id)
-        await self.redis.hdel(
-            f'hash:wait_activation:{client_id}',
-            ['api_id', 'api_hash', 'phone_number']
-        )
-        await self.redis.hdel(
-            'hash:id_conf_code',
-            client_id
-        )
+manager = DataManager('sqlite:///test.db', base=Base)
+session = manager.session
 
 
-client_manager = ClientManager()
+client_manager = ClientManager(
+    api_id=5472980,
+    api_hash='7c0ace9d363de61a645e8cfb3d2b60ab'
+)
 
 
 async def main():
     await client_manager.on_startup()
+    redis = client_manager.redis
     while True:
-        # цикл сначала чекает, не появилось ли новых клиентов и затем начинает рассылку сообщений
         await client_manager.clients_activate()
-        for client_id, client in client_manager.clients.items():
+        for user_chat_id, client in client_manager.clients.items():
+            client_contacts = session.query(UserContacts).filter(
+                UserContacts.user_chat_id == user_chat_id
+            ).all()
             await client.start()
-            # тут будет логика отправки сообщение по контактам с логикой из предыдущего бота внутри
+            for contact in client_contacts:
+                contact_id = contact.contact_id
+                table = f'hash:messages:{user_chat_id}:{contact_id}'
+                date_today = dt.now()
+                time_now = date_today.time()
+                messages = redis.hget(table)
+                if await birthday_check(contact, date_today):
+                    await client.send_message(f'{contact_id}', constants.BIRTHDAY)
+
+                if time_now < constants.MORNING['hour_start']:
+                    await night_mode(messages, redis, table)
+                    continue
+
+                if not messages:
+                    await set_messages(table, redis)
+
+                time_now_str = time_now.strftime('%H:%M')
+                message_now = await redis.hget(table, time_now_str)
+                if message_now:
+                    await client.send_message(f'{contact_id}', message_now)
+                    await redis.hdel(table, time_now_str)
             await client.stop()
+            await asyncio.sleep(1)
 
 
-async def get_confirmation_code(redis, client_id):
-    # это как раз та блокирующая функция
-    # после того, как произойдет активация клиента эта функция будет ждать пока человек отправит код боту
-    # а бот добавит его в редис
-    async def _stab():
-        while True:
-            code = await redis.hget(
-                'hash:id_conf_code',
-                client_id
-            )
-            if code:
-                break
-        return code
-    return _stab
+async def set_messages(table, redis):
+    """
+    Создает список сообщений на день с временем отправки.
+    """
+    for day_part in constants.DAY_PARTS:
+        hour_start = day_part['hour_start']
+        hour_end = day_part['hour_end']
+        if hour_end < dt.now().time():
+            continue
+        random_hour = randint(
+            hour_start.hour,
+            hour_end.hour - 1
+        )
+        random_minute = randint(
+            0,
+            60
+        )
+        if random_minute < 10:
+            random_minute = '0' + str(random_minute)
+        message_time = f'{random_hour}:{random_minute}'
+        message = day_part['message']
+        await redis.hset(table, message_time, message)
+
+
+async def birthday_check(contact, date_today):
+    """Проверяет наступление ДР пользователя и отправляет поздравление."""
+    contact_id = contact.contact_id
+    contact_birthday_date = contact.birthday[0:5]
+    congratulations = contact.birthday_congrats
+    date_today_str = date_today.strftime('%d-%m')
+    if (date_today_str == contact_birthday_date and
+            not congratulations):
+        session.execute(
+            update(UserContacts).
+            where(
+                UserContacts.contact_id == contact_id
+            ).values(birthday_congrats=True)
+        )
+        session.commit()
+        return True
+    elif congratulations:
+        session.execute(
+            update(UserContacts).
+            where(UserContacts.contact_id == contact_id).
+            values(birthday_congrats=False)
+        )
+        session.commit()
+    return False
+
+
+async def night_mode(messages, redis, table):
+    if messages:
+        for message in messages.keys():
+            await redis.hdel(table, message)
+    await asyncio.sleep(1200)
+
 
 if __name__ == '__main__':
     asyncio.run(main())

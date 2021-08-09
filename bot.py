@@ -12,7 +12,10 @@ from dotenv import load_dotenv
 from loguru import logger
 
 
-from redis_db.key_schema import KeySchema
+from sql_db.tables import User, UserContacts, Base
+from sql_db.data_manager import DataManager
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 logger.add(
     'logs.json', format='{time} {level} {message}',
@@ -54,10 +57,11 @@ except Exception as e:
     logger.exception('Ошибка при создании диспетчера: ', e)
     raise SystemExit()
 
+manager = DataManager('sqlite:///test.db', base=Base)
+session = manager.session
+
 
 class Form(StatesGroup):
-    api_id = State()
-    api_hash = State()
     phone_number = State()
     conf_code = State()
     yes_or_not = State()
@@ -69,13 +73,31 @@ class FormAddContact(StatesGroup):
 
 
 @dp.message_handler(commands='start', state='*')
-async def cmd_start(message, state):
-    await Form.api_id.set()
-    await message.reply('Введите api_id')
+async def cmd_start(message):
+    await Form.phone_number.set()
+    await message.reply('Введите номер телефона')
+
+
+@dp.message_handler(commands='cancel', state=[FormAddContact.number_input, FormAddContact.birthday])
+async def cmd_cancel_add_contact(message):
+    await Form.yes_or_not.set()
+    return await message.reply('Добавление нового контактка отменено')
+
+
+@dp.message_handler(commands='cancel', state=Form.yes_or_not)
+async def cmd_cancel(message, state):
+    await state.finish()
+    session.execute(
+        update(User).
+        where(User.chat_id == message.chat.id).
+        values(is_active=False)
+    )
+    session.commit()
+    return await message.reply('С этого момента вы не будете получать сообщения')
 
 
 @dp.message_handler(commands='add', state=Form.yes_or_not)
-async def add_contact(message, state, redis):
+async def add_contact(message):
     await FormAddContact.number_input.set()
     await message.reply('Отправьте контак из контактной книжки.\n'
                         'У контакта обязательно должен быть указан '
@@ -83,24 +105,38 @@ async def add_contact(message, state, redis):
 
 
 @dp.message_handler(content_types=ContentType.CONTACT, state=FormAddContact.number_input)
-async def process_contact(message, state, redis):
-    phone_number = message.contact.get('phone_number')
-    if phone_number is None:
-        return await message.reply('У данного контакта не указан номер телефона')
-    await redis.sadd(f'list:user_contacts:{message.chat.id}')
-    await Form.next()
+async def process_contact(message, state):
+    async with state.proxy() as data:
+        data['contact_id'] = message.contact.user_id
+    await FormAddContact.next()
     await message.reply('Теперь введите день рождения данного контакта')
 
 
 @dp.message_handler(state=FormAddContact.birthday)
-async def process_contact_birthday(message, state, redis):
+async def process_contact_birthday(message, state):
+    async with state.proxy() as data:
+        contact_id = data['contact_id']
     birthday = await validate_birthday(date=message.text)
     if birthday is None:
         await bot.send_message(
             message.chat.id,
             'Введите дату в правильном формате'
         )
-    await Form.yes_or_not.set()
+    contact = UserContacts(
+        contact_id=contact_id,
+        birthday=birthday,
+        user_chat_id=message.chat.id
+    )
+    try:
+        session.add(contact)
+        session.commit()
+    except IntegrityError:
+        return await message.reply('Данный контак уже есть в вашем списке')
+    else:
+        await message.reply('C этого момента дайнный контакт будет получать '
+                            'от вас сообщения')
+    finally:
+        await Form.yes_or_not.set()
 
 
 @dp.message_handler(state=FormAddContact.number_input)
@@ -108,48 +144,20 @@ async def not_contact(message):
     await message.reply('Отправьте именно контак из контактной книжки!')
 
 
-@dp.message_handler(state=Form.api_id)
-async def process_api_id(message, state, redis):
-    async with state.proxy() as data:
-        await redis.hset(
-            KeySchema().user_info(message.chat.id),
-            'api_id',
-            message.text
-        )
-        data['api_id'] = message.text
-    await message.reply('Теперь api_hash')
-    await Form.next()
-
-
-@dp.message_handler(state=Form.api_hash)
-async def process_api_hash(message, state, redis):
-    async with state.proxy() as data:
-        data['api_hash'] = message.text
-        await redis.hset(
-            KeySchema().user_info(message.chat.id),
-            'api_hash',
-            message.text
-        )
-    await message.reply('Теперь номер телефона')
-    await Form.next()
-
-
 @dp.message_handler(state=Form.phone_number)
-async def process_phone(message, state, redis):
+async def process_phone(message, state):
     async with state.proxy() as data:
         data['phone_number'] = message.text
-        api_id = data['api_id']
-        api_hash = data['api_hash']
         phone_number = data['phone_number']
-        await redis.hmset_dict(
-            f'hash:wait_activation:{message.chat.id}',
-            {
-                'api_id': api_id,
-                'api_hash': api_hash,
-                'phone_number': phone_number
-            }
-        )
-        await redis.sadd('list:wait_activation', message.chat.id)
+        try:
+            user = User(
+                chat_id=message.chat.id,
+                phone_number=phone_number
+            )
+            session.add(user)
+            session.commit()
+        except IntegrityError:
+            return await message.reply('Вы уже зарегистрировались')
         await message.reply('Теперь введите код подтверждения.')
         await Form.next()
 
@@ -157,21 +165,20 @@ async def process_phone(message, state, redis):
 @dp.message_handler(state=Form.conf_code)
 async def process_conf_code(message, state, redis):
     async with state.proxy() as data:
-        data['conf_code'] = message.text
+        code = message.text[0:-1]
         await redis.hset(
-            'hash:id_conf_code', str(message.chat.id), message.text
+            'hash:id_conf_code', str(message.chat.id), code
         )
-    await message.reply('Введите любое сообщение')
     await Form.next()
 
 
 async def validate_birthday(date):
     try:
-        birthday = dt.strptime(date, '%d-%m-%y')
+        dt.strptime(date, '%d-%m-%y')
     except ValueError:
         return None
     else:
-        return birthday
+        return date
 
 
 if __name__ == '__main__':

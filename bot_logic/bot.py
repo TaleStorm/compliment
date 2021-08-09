@@ -22,7 +22,6 @@ logger.add('logs.json', format='{time} {level} {message}',
 
 load_dotenv()
 
-
 class RedisMiddleware(LifetimeControllerMiddleware):
     def __init__(self):
         super().__init__()
