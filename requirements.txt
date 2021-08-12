@@ -5,3 +5,4 @@ aioredis
 loguru
 git+https://github.com/KrimsN/pyrogram.git
 sqlalchemy
+tgcrypto

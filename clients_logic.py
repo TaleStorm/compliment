@@ -1,20 +1,27 @@
 import asyncio
+import os
 from datetime import datetime as dt
 from random import randint
 
+from dotenv import load_dotenv
 from sqlalchemy import update
-from sql_db.tables import Base, UserContacts
-from sql_db.data_manager import DataManager
-from client_manager import ClientManager
+
 import constants
+from client_manager import ClientManager
+from sql_db.data_manager import DataManager
+from sql_db.tables import Base, UserContacts
+
+load_dotenv()
 
 manager = DataManager('sqlite:///test.db', base=Base)
 session = manager.session
 
+API_ID = os.environ.get('API_ID')
+API_HASH = os.environ.get('API_HASH')
 
 client_manager = ClientManager(
-    api_id=5472980,
-    api_hash='7c0ace9d363de61a645e8cfb3d2b60ab'
+    api_id=API_ID,
+    api_hash=API_HASH
 )
 
 
@@ -33,9 +40,13 @@ async def main():
                 table = f'hash:messages:{user_chat_id}:{contact_id}'
                 date_today = dt.now()
                 time_now = date_today.time()
-                messages = redis.hget(table)
+                messages = await redis.hget(table)
+                print(messages)
                 if await birthday_check(contact, date_today):
-                    await client.send_message(f'{contact_id}', constants.BIRTHDAY)
+                    await client.send_message(
+                        f'{contact_id}',
+                        constants.BIRTHDAY
+                    )
 
                 if time_now < constants.MORNING['hour_start']:
                     await night_mode(messages, redis, table)

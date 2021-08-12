@@ -43,7 +43,9 @@ class ClientManager:
         print(self.clients)
 
     async def clients_activate(self):
-        wait_activation = session.query(User).filter(User.is_activated == False).all()
+        wait_activation = session.query(User).filter(
+            User.is_activated == False
+        ).all()
         for user in wait_activation:
             user_chat_id = user.chat_id
             phone_number = user.phone_number
@@ -52,7 +54,9 @@ class ClientManager:
                 api_id=self.api_id,
                 api_hash=self.api_hash,
                 phone_number=phone_number,
-                phone_code_handler=await self.get_confirmation_code(client_id=user_chat_id)
+                phone_code_handler=await self.get_confirmation_code(
+                    client_id=user_chat_id
+                )
             )
             await client.start()
             await client.stop()
@@ -67,11 +71,17 @@ class ClientManager:
     async def get_confirmation_code(self, client_id):
         async def _stab():
             while True:
+                wrong_code = await self.redis.smembers('set:code_entered')
+                if client_id in wrong_code:
+                    await asyncio.sleep(0)
+                    continue
                 code = await self.redis.hget(
                     'hash:id_conf_code',
                     client_id
                 )
                 if code:
+                    await self.redis.hdel('hash:id_conf_code', client_id)
+                    await self.redis.sadd('set:code_entered', client_id)
                     break
                 await asyncio.sleep(1)
             return code

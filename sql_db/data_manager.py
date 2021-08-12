@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+
 class DataManager:
     def __init__(self, str_connection, base):
         self.engine = create_engine(str_connection)
