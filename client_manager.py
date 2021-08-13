@@ -1,12 +1,11 @@
 import asyncio
+
 import aioredis
 from pyrogram import Client
-from sqlalchemy import update
-from sql_db.tables import User, Base
+
 from sql_db.data_manager import DataManager
 
-manager = DataManager('sqlite:///test.db', base=Base)
-session = manager.session
+manager = DataManager('sqlite+aiosqlite:///test.db')
 
 
 class ClientManager:
@@ -25,10 +24,7 @@ class ClientManager:
             encoding='utf-8'
         )
         self.redis = aioredis.Redis(pool_or_conn=pool)
-        activated_clients = session.query(User).filter(
-            User.is_activated == True,
-            User.is_active == True
-        ).all()
+        activated_clients = await manager.get_active_users()
         for user in activated_clients:
             user_chat_id = user.chat_id
             client = Client(
@@ -43,9 +39,7 @@ class ClientManager:
         print(self.clients)
 
     async def clients_activate(self):
-        wait_activation = session.query(User).filter(
-            User.is_activated == False
-        ).all()
+        wait_activation = await manager.get_wait_activation_users()
         for user in wait_activation:
             user_chat_id = user.chat_id
             phone_number = user.phone_number
@@ -60,12 +54,7 @@ class ClientManager:
             )
             await client.start()
             await client.stop()
-            session.execute(
-                update(User).
-                where(User.chat_id == user_chat_id).
-                values(is_activated=True)
-            )
-            session.commit()
+            await manager.set_client_activated_status(user_chat_id, True)
             await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
