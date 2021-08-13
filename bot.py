@@ -7,15 +7,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher.middlewares import LifetimeControllerMiddleware
-from aiogram.types import ContentType
 from aiogram.utils import executor
 from dotenv import load_dotenv
 from loguru import logger
 
 
-from sql_db.tables import User, UserContacts, Base
 from sql_db.data_manager import DataManager
-from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
 logger.add(
@@ -24,6 +21,8 @@ logger.add(
 )
 
 load_dotenv()
+
+manager = DataManager('sqlite+aiosqlite:///test.db')
 
 
 class RedisMiddleware(LifetimeControllerMiddleware):
@@ -36,6 +35,8 @@ class RedisMiddleware(LifetimeControllerMiddleware):
             encoding='utf-8'
         )
         data['redis'] = aioredis.Redis(pool_or_conn=pool)
+        data['async_session'] = manager.async_session
+
 
 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -58,22 +59,19 @@ except Exception as e:
     logger.exception('Ошибка при создании диспетчера: ', e)
     raise SystemExit()
 
-manager = DataManager('sqlite:///test.db', base=Base)
-session = manager.session
+manager = DataManager('sqlite+aiosqlite:///test.db')
+async_session = manager.async_session
 
 
 async def on_startup(dispatcher):
-    active_users = session.query(User).filter(
-        User.is_active == True,
-        User.is_activated == True
-    ).all()
+    active_users = await manager.get_active_users()
     for user in active_users:
         chat_id = user.chat_id
         await dispatcher.bot.send_message(
             chat_id=chat_id,
-            message='Мы перезапустили бота.\n'
-                    'Что бы сново получить доступ к '
-                    'его функционалу введите /rerun'
+            text='Мы перезапустили бота.\n'
+                 'Что бы сново получить доступ к '
+                 'его функционалу введите /rerun'
         )
 
 
@@ -96,7 +94,7 @@ async def cmd_start(message):
 
 @dp.message_handler(commands='rerun', state='*')
 async def cmd_rerun(message):
-    user = session.query(User).filter(User.chat_id == message.chat.id).all()
+    user = await manager.get_user(message.chat.id)
     if not user:
         return await message.reply('Вы еще не зарегестрировались.\n'
                                    'Введите команду /start, что бы '
@@ -118,12 +116,7 @@ async def cmd_cancel_add_contact(message):
 @dp.message_handler(commands='cancel', state=Form.activated)
 async def cmd_cancel(message, state):
     await state.finish()
-    session.execute(
-        update(User).
-        where(User.chat_id == str(message.chat.id)).
-        values(is_active=False)
-    )
-    session.commit()
+    await manager.set_user_active_status(message.chat.id, False)
     return await message.reply('С этого момента вы не '
                                'будете получать сообщения')
 
@@ -131,18 +124,17 @@ async def cmd_cancel(message, state):
 @dp.message_handler(commands='add', state=Form.activated)
 async def add_contact(message):
     await FormAddContact.number_input.set()
-    await message.reply('Отправьте контак из контактной книжки.\n'
-                        'У контакта обязательно должен быть указан '
-                        'номер телефона.')
+    await message.reply('Отправьте имя пользователя в формате '
+                        '"@username"')
 
 
-@dp.message_handler(
-    content_types=ContentType.CONTACT,
-    state=FormAddContact.number_input
-)
+@dp.message_handler(state=FormAddContact.number_input)
 async def process_contact(message, state):
+    if message.text[0] != '@':
+
+        return await message.reply('Введите имя пользователя в правильном формате')
     async with state.proxy() as data:
-        data['contact_id'] = message.contact.user_id
+        data['contact_username'] = message.text[1::]
     await FormAddContact.next()
     await message.reply('Теперь введите день рождения данного контакта')
 
@@ -150,21 +142,19 @@ async def process_contact(message, state):
 @dp.message_handler(state=FormAddContact.birthday)
 async def process_contact_birthday(message, state):
     async with state.proxy() as data:
-        contact_id = data['contact_id']
+        contact_username = data['contact_username']
     birthday = await validate_birthday(date=message.text)
     if birthday is None:
         await bot.send_message(
             message.chat.id,
             'Введите дату в правильном формате'
         )
-    contact = UserContacts(
-        contact_id=contact_id,
-        birthday=birthday,
-        user_chat_id=message.chat.id
-    )
     try:
-        session.add(contact)
-        session.commit()
+        await manager.create_contact(
+            contact_username=contact_username,
+            contact_birthday=birthday,
+            user_chat_id=message.chat.id
+        )
     except IntegrityError:
         return await message.reply('Данный контак уже есть в вашем списке')
     else:
@@ -185,12 +175,10 @@ async def process_phone(message, state):
         data['phone_number'] = message.text
         phone_number = data['phone_number']
         try:
-            user = User(
-                chat_id=message.chat.id,
-                phone_number=phone_number
+            await manager.create_user(
+                user_chat_id=message.chat.id,
+                user_phone_number=phone_number
             )
-            session.add(user)
-            session.commit()
         except IntegrityError:
             return await message.reply('Вы уже зарегистрировались')
         await message.reply('Теперь введите код подтверждения.')
@@ -207,9 +195,7 @@ async def process_conf_code(message, state, redis):
         code_entered = await redis.smembers('set:code_entered')
         if str(message.chat.id) in code_entered:
             await asyncio.sleep(5)
-            user = session.query(User).filter(
-                User.chat_id == message.chat.id
-            ).first()
+            user = await manager.get_user(message.chat.id)
             if user.is_activated == True:
                 await message.reply('Вы успешно зарегистрировались')
                 await Form.next()
@@ -232,4 +218,4 @@ async def validate_birthday(date):
 
 if __name__ == '__main__':
     dp.middleware.setup(RedisMiddleware())
-    executor.start_polling(dp, skip_updates=True)
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)

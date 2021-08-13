@@ -132,3 +132,6 @@ dmypy.json
 logs.*
 bot_logic/
 *.db
+*.session
+*.zip
+*.json

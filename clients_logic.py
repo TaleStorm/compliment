@@ -4,17 +4,16 @@ from datetime import datetime as dt
 from random import randint
 
 from dotenv import load_dotenv
-from sqlalchemy import update
 
 import constants
 from client_manager import ClientManager
 from sql_db.data_manager import DataManager
-from sql_db.tables import Base, UserContacts
+from sql_db.tables import UserContacts
+from sqlalchemy.future import select
 
 load_dotenv()
 
-manager = DataManager('sqlite:///test.db', base=Base)
-session = manager.session
+manager = DataManager('sqlite+aiosqlite:///test.db')
 
 API_ID = os.environ.get('API_ID')
 API_HASH = os.environ.get('API_HASH')
@@ -31,35 +30,16 @@ async def main():
     while True:
         await client_manager.clients_activate()
         for user_chat_id, client in client_manager.clients.items():
-            client_contacts = session.query(UserContacts).filter(
-                UserContacts.user_chat_id == user_chat_id
-            ).all()
+            client_contacts = await manager.get_client_contacts(user_chat_id)
             await client.start()
+
             for contact in client_contacts:
-                contact_id = contact.contact_id
-                table = f'hash:messages:{user_chat_id}:{contact_id}'
-                date_today = dt.now()
-                time_now = date_today.time()
-                messages = await redis.hget(table)
-                print(messages)
-                if await birthday_check(contact, date_today):
-                    await client.send_message(
-                        f'{contact_id}',
-                        constants.BIRTHDAY
-                    )
-
-                if time_now < constants.MORNING['hour_start']:
-                    await night_mode(messages, redis, table)
-                    continue
-
-                if not messages:
-                    await set_messages(table, redis)
-
-                time_now_str = time_now.strftime('%H:%M')
-                message_now = await redis.hget(table, time_now_str)
-                if message_now:
-                    await client.send_message(f'{contact_id}', message_now)
-                    await redis.hdel(table, time_now_str)
+                await contact_messages_check(
+                    client=client,
+                    contact=contact,
+                    user_chat_id=user_chat_id,
+                    redis=redis
+                )
             await client.stop()
             await asyncio.sleep(1)
 
@@ -90,28 +70,51 @@ async def set_messages(table, redis):
 
 async def birthday_check(contact, date_today):
     """Проверяет наступление ДР пользователя и отправляет поздравление."""
-    contact_id = contact.contact_id
+    contact_username = contact.contact_username
     contact_birthday_date = contact.birthday[0:5]
     congratulations = contact.birthday_congrats
     date_today_str = date_today.strftime('%d-%m')
-    if (date_today_str == contact_birthday_date and
+    is_birthday = date_today_str == contact_birthday_date
+    if (is_birthday and
             not congratulations):
-        session.execute(
-            update(UserContacts).
-            where(
-                UserContacts.contact_id == contact_id
-            ).values(birthday_congrats=True)
+        await manager.set_contact_congrats_status(
+            contact_username=contact_username,
+            status=True
         )
-        session.commit()
-        return True
-    elif congratulations:
-        session.execute(
-            update(UserContacts).
-            where(UserContacts.contact_id == contact_id).
-            values(birthday_congrats=False)
+    elif congratulations and not is_birthday:
+        await manager.set_contact_congrats_status(
+            contact_username=contact_username,
+            status=False
         )
-        session.commit()
     return False
+
+
+async def contact_messages_check(client, contact, user_chat_id, redis):
+    contact_username = contact.contact_username
+    table = f'hash:messages:{user_chat_id}:{contact_username}'
+    date_today = dt.now()
+    time_now = date_today.time()
+    messages = await redis.hgetall(table)
+    print(messages)
+    need_to_congratulate = await birthday_check(contact, date_today)
+    if need_to_congratulate:
+        await client.send_message(
+            chat_id=contact_username,
+            text=constants.BIRTHDAY
+        )
+
+    if time_now < constants.MORNING['hour_start']:
+        await night_mode(messages, redis, table)
+        return
+
+    if not messages:
+        await set_messages(table, redis)
+
+    time_now_str = time_now.strftime('%H:%M')
+    message_now = await redis.hget(table, time_now_str)
+    if message_now:
+        await client.send_message(f'{contact_username}', message_now)
+        await redis.hdel(table, time_now_str)
 
 
 async def night_mode(messages, redis, table):

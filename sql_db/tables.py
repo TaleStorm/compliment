@@ -16,7 +16,7 @@ class User(Base):
 class UserContacts(Base):
     __tablename__ = 'user_contacts'
     id = Column(Integer, primary_key=True)
-    contact_id = Column(String, unique=True)
+    contact_username = Column(String, unique=True)
     birthday = Column(String)
     birthday_congrats = Column(Boolean, default=False)
     user_chat_id = Column(Integer,
