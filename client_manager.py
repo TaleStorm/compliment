@@ -1,10 +1,9 @@
 import asyncio
+
 import aioredis
 from pyrogram import Client
-from sqlalchemy import update
-from sql_db.tables import User, Base
+
 from sql_db.data_manager import DataManager
-from sqlalchemy.future import select
 
 manager = DataManager('sqlite+aiosqlite:///test.db')
 

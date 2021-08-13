@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 import constants
 from client_manager import ClientManager
 from sql_db.data_manager import DataManager
-from sql_db.tables import UserContacts
-from sqlalchemy.future import select
 
 load_dotenv()
 

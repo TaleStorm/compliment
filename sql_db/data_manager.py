@@ -1,11 +1,12 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
 import asyncio
-from sqlalchemy.future import select
 
-from sql_db.tables import Base, UserContacts, User
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
+
+from sql_db.tables import Base, User, UserContacts
+
+
 class DataManager:
     def __init__(self, str_connection):
         self.engine = create_async_engine(str_connection)
@@ -64,7 +65,10 @@ class DataManager:
                 session.add(user)
                 await session.commit()
 
-    async def create_contact(self, contact_username, contact_birthday, user_chat_id):
+    async def create_contact(self,
+                             contact_username,
+                             contact_birthday,
+                             user_chat_id):
         contact = UserContacts(
             contact_username=contact_username,
             birthday=contact_birthday,
@@ -84,7 +88,6 @@ class DataManager:
                 user.is_activated = status
                 await session.commit()
 
-
     async def set_user_active_status(self, user_chat_id, status: bool):
         async with self.async_session() as session:
             async with session.begin():
@@ -94,7 +97,10 @@ class DataManager:
                 user.is_active = status
                 await session.commit()
 
-    async def set_contact_congrats_status(self, contact_username: str, status: bool):
+    async def set_contact_congrats_status(self,
+                                          contact_username: str,
+                                          status: bool
+                                          ):
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(

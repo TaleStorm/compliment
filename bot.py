@@ -1,6 +1,6 @@
+import asyncio
 import os
 from datetime import datetime as dt
-import asyncio
 
 import aioredis
 from aiogram import Bot, Dispatcher
@@ -10,10 +10,9 @@ from aiogram.dispatcher.middlewares import LifetimeControllerMiddleware
 from aiogram.utils import executor
 from dotenv import load_dotenv
 from loguru import logger
-
+from sqlalchemy.exc import IntegrityError
 
 from sql_db.data_manager import DataManager
-from sqlalchemy.exc import IntegrityError
 
 logger.add(
     'logs.json', format='{time} {level} {message}',
@@ -38,8 +37,8 @@ class RedisMiddleware(LifetimeControllerMiddleware):
         data['async_session'] = manager.async_session
 
 
-
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+
 if TELEGRAM_TOKEN is None:
     logger.exception('Не удалось получить токены')
     raise SystemExit()
@@ -132,7 +131,8 @@ async def add_contact(message):
 async def process_contact(message, state):
     if message.text[0] != '@':
 
-        return await message.reply('Введите имя пользователя в правильном формате')
+        return await message.reply('Введите имя пользователя в '
+                                   'правильном формате')
     async with state.proxy() as data:
         data['contact_username'] = message.text[1::]
     await FormAddContact.next()

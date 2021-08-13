@@ -12,7 +12,7 @@ from aiogram.dispatcher.middlewares import LifetimeControllerMiddleware
 from aiogram.utils import executor
 from dotenv import load_dotenv
 from loguru import logger
-from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP
+from telegram_bot_calendar import LSTEP, DetailedTelegramCalendar
 
 import constants
 from redis_db.key_schema import KeySchema
