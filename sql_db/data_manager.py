@@ -44,7 +44,15 @@ class DataManager:
             async with session.begin():
                 query = select(User).where(User.chat_id == user_chat_id)
                 result = await session.execute(query)
-                return result.scalars().all()
+                return result.scalars().first()
+
+    async def get_contact(self, contact_username):
+        async with self.async_session() as session:
+            async with session.begin():
+                query = select(UserContacts).where(
+                    UserContacts.contact_username == contact_username)
+                result = await session.execute(query)
+                return result.scalars().first()
 
     async def get_client_contacts(self, user_chat_id):
         async with self.async_session() as session:
@@ -111,3 +119,14 @@ class DataManager:
                 user_contact.birthday_congrats = status
                 await session.commit()
         return True
+
+    async def delete_contact(self, contact_username):
+        async with self.async_session() as session:
+            async with session.begin():
+                query = select(UserContacts).where(
+                    UserContacts.contact_username == contact_username
+                )
+                result = await session.execute(query)
+                contact = result.scalars().first()
+                await session.delete(contact)
+                await session.commit()

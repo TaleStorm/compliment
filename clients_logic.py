@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import constants
 from client_manager import ClientManager
 from sql_db.data_manager import DataManager
+from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
 
 load_dotenv()
 
@@ -30,7 +31,7 @@ async def main():
         for user_chat_id, client in client_manager.clients.items():
             client_contacts = await manager.get_client_contacts(user_chat_id)
             await client.start()
-
+            await contact_exist_check(client, redis)
             for contact in client_contacts:
                 await contact_messages_check(
                     client=client,
@@ -121,6 +122,30 @@ async def night_mode(messages, redis, table):
             await redis.hdel(table, message)
     await asyncio.sleep(1200)
 
+
+async def contact_exist_check(client, redis):
+    contacts = await redis.smembers('list:check_contact')
+    for contact in contacts:
+        try:
+            contact_info = await client.get_users(contact)
+
+        except UsernameNotOccupied:
+            await redis.hset('hash:check_contact_status', contact, 'False')
+        else:
+            first_name = contact_info.first_name
+            last_name = contact_info.last_name
+            username = contact_info.username
+            if last_name is None:
+                if first_name is None:
+                    full_name = username
+                else:
+                    full_name = first_name
+            else:
+                full_name = first_name + ' ' + last_name
+            await redis.hset('hash:check_contact_status', contact, full_name)
+
+        finally:
+            await redis.srem('list:check_contact', contact)
 
 if __name__ == '__main__':
     asyncio.run(main())
