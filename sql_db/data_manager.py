@@ -120,11 +120,12 @@ class DataManager:
                 await session.commit()
         return True
 
-    async def delete_contact(self, contact_username):
+    async def delete_contact(self, contact_username, user_chat_id):
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(
-                    UserContacts.contact_username == contact_username
+                    UserContacts.contact_username == contact_username,
+                    UserContacts.user_chat_id == user_chat_id
                 )
                 result = await session.execute(query)
                 contact = result.scalars().first()

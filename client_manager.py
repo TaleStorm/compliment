@@ -9,7 +9,7 @@ manager = DataManager('sqlite+aiosqlite:///test.db')
 
 
 class ClientManager:
-    def __init__(self, api_id, api_hash):
+    def __init__(self, api_id, api_hash, manager=None):
         self.api_id = api_id
         self.api_hash = api_hash
         self.clients = {}
@@ -40,22 +40,29 @@ class ClientManager:
 
     async def clients_activate(self):
         wait_activation = await manager.get_wait_activation_users()
+        tasks = []
         for user in wait_activation:
-            user_chat_id = user.chat_id
-            phone_number = user.phone_number
-            client = Client(
-                f'{user_chat_id}',
-                api_id=self.api_id,
-                api_hash=self.api_hash,
-                phone_number=phone_number,
-                phone_code_handler=await self.get_confirmation_code(
-                    client_id=user_chat_id
-                )
+            tasks.append(asyncio.create_task(self.activate_client(user)))
+
+        if tasks:
+            await asyncio.wait(tasks)
+
+    async def activate_client(self, user):
+        user_chat_id = user.chat_id
+        phone_number = user.phone_number
+        client = Client(
+            f'{user_chat_id}',
+            api_id=self.api_id,
+            api_hash=self.api_hash,
+            phone_number=phone_number,
+            phone_code_handler=await self.get_confirmation_code(
+                client_id=user_chat_id
             )
-            await client.start()
-            await client.stop()
-            await manager.set_client_activated_status(user_chat_id, True)
-            await self.add_client(f'{user_chat_id}', client)
+        )
+        await client.start()
+        await client.stop()
+        await manager.set_client_activated_status(user_chat_id, True)
+        await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
         async def _stab():

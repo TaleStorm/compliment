@@ -6,6 +6,7 @@ from random import randint
 from dotenv import load_dotenv
 
 import constants
+from redis_db.key_schema import KeySchema
 from client_manager import ClientManager
 from sql_db.data_manager import DataManager
 from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
@@ -43,14 +44,16 @@ async def main():
             await asyncio.sleep(1)
 
 
-async def set_messages(table, redis):
+async def set_messages(table, redis, time_now=None):
     """
     Создает список сообщений на день с временем отправки.
     """
+    if time_now is None:
+        time_now = dt.now().time()
     for day_part in constants.DAY_PARTS:
         hour_start = day_part['hour_start']
         hour_end = day_part['hour_end']
-        if hour_end < dt.now().time():
+        if hour_end < time_now:
             continue
         random_hour = randint(
             hour_start.hour,
@@ -67,7 +70,7 @@ async def set_messages(table, redis):
         await redis.hset(table, message_time, message)
 
 
-async def birthday_check(contact, date_today):
+async def birthday_check(contact, date_today, manager=manager):
     """Проверяет наступление ДР пользователя и отправляет поздравление."""
     contact_username = contact.contact_username
     contact_birthday_date = contact.birthday[0:5]
@@ -80,6 +83,7 @@ async def birthday_check(contact, date_today):
             contact_username=contact_username,
             status=True
         )
+        return True
     elif congratulations and not is_birthday:
         await manager.set_contact_congrats_status(
             contact_username=contact_username,
@@ -90,7 +94,7 @@ async def birthday_check(contact, date_today):
 
 async def contact_messages_check(client, contact, user_chat_id, redis):
     contact_username = contact.contact_username
-    table = f'hash:messages:{user_chat_id}:{contact_username}'
+    table = KeySchema().contact_messages(user_chat_id, contact_username)
     date_today = dt.now()
     time_now = date_today.time()
     messages = await redis.hgetall(table)
@@ -120,17 +124,17 @@ async def night_mode(messages, redis, table):
     if messages:
         for message in messages.keys():
             await redis.hdel(table, message)
-    await asyncio.sleep(1200)
+    return await asyncio.sleep(1200)
 
 
 async def contact_exist_check(client, redis):
-    contacts = await redis.smembers('list:check_contact')
+    contacts = await redis.smembers(KeySchema().check_contact())
     for contact in contacts:
         try:
             contact_info = await client.get_users(contact)
 
         except UsernameNotOccupied:
-            await redis.hset('hash:check_contact_status', contact, 'False')
+            await redis.hset(KeySchema().check_contact_status(), contact, 'False')
         else:
             first_name = contact_info.first_name
             last_name = contact_info.last_name
@@ -142,10 +146,10 @@ async def contact_exist_check(client, redis):
                     full_name = first_name
             else:
                 full_name = first_name + ' ' + last_name
-            await redis.hset('hash:check_contact_status', contact, full_name)
+            await redis.hset(KeySchema().check_contact_status(), contact, full_name)
 
         finally:
-            await redis.srem('list:check_contact', contact)
+            await redis.srem(KeySchema().check_contact(), contact)
 
 if __name__ == '__main__':
     asyncio.run(main())
