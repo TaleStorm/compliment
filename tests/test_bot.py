@@ -34,18 +34,17 @@ class BotTest(IsolatedAsyncioTestCase):
         message_mock = AsyncMock(text=const.USER_PHONE_NUMBER)
         message_mock.chat = AsyncMock(id=const.USER_CHAT_ID)
         state_mock = MagicMock()
+        redis = AsyncMock()
 
-        await process_phone(message_mock, state_mock, data_manager=self.data_manager)
+        await process_phone(
+            message_mock,
+            state_mock,
+            data_manager=self.data_manager,
+            redis=redis)
+
         message_mock.reply.assert_called_with('Теперь введите код подтверждения.')
 
-    @patch('bot.Form', new_callable=AsyncMock)
-    async def test_03_process_phone_already_exist(self, mock_form):
-        message_mock = AsyncMock(text=const.USER_PHONE_NUMBER)
-        message_mock.chat = AsyncMock(id=const.USER_CHAT_ID)
-        state_mock = MagicMock()
 
-        await process_phone(message_mock, state_mock, data_manager=self.data_manager)
-        message_mock.reply.assert_called_with('Вы уже зарегистрировались')
 
 
 
