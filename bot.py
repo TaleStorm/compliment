@@ -14,6 +14,7 @@ from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
 from sql_db.data_manager import DataManager
+from redis_db.key_schema import KeySchema
 
 logger.add(
     'logs.json', format='{time} {level} {message}',
@@ -21,8 +22,6 @@ logger.add(
 )
 
 load_dotenv()
-
-manager = DataManager('sqlite+aiosqlite:///test.db')
 
 
 class RedisMiddleware(LifetimeControllerMiddleware):
@@ -109,7 +108,7 @@ async def cmd_start(message):
             return await message.reply(message_reply)
         return await message.reply('Вы уже зарегистрировались')
     await Form.phone_number.set()
-    await message.reply('Введите номер телефона')
+    return await message.reply('Введите номер телефона')
 
 
 @dp.message_handler(commands='rerun', state='*')
@@ -195,7 +194,7 @@ async def delete_confirm(message, state):
     if message.text == 'Да':
         async with state.proxy() as data:
             contact_username = data['contact_delete_username']
-        await manager.delete_contact(contact_username)
+        await manager.delete_contact(contact_username, message.chat.id)
         await Form.activated.set()
         return await message.reply(
             'Контакт успешно удален',
@@ -231,10 +230,10 @@ async def process_contact(message, state, redis):
 
         return await message.reply('Введите имя пользователя в '
                                    'правильном формате')
-    await redis.sadd('list:check_contact', message.text[1::])
+    await redis.sadd(KeySchema().check_contact(), message.text[1::])
     while True:
         status_or_fullname = await redis.hget(
-            'hash:check_contact_status', message.text[1::]
+            KeySchema().check_contact_status(), message.text[1::]
         )
         if status_or_fullname:
             if status_or_fullname == 'False':
@@ -247,7 +246,7 @@ async def process_contact(message, state, redis):
             reply_keyboard.add(button_yes, button_no)
             await FormAddContact.next()
             await redis.hdel(
-                'hash:check_contact_status', message.text[1::]
+                KeySchema().check_contact_status(), message.text[1::]
             )
             return await message.reply(
                 f'Вы действительно хотите добавить контакт '
@@ -305,29 +304,43 @@ async def not_contact(message):
 
 
 @dp.message_handler(state=Form.phone_number)
-async def process_phone(message, state):
+async def process_phone(message, state, redis, data_manager=manager):
     async with state.proxy() as data:
         data['phone_number'] = message.text
-        phone_number = data['phone_number']
-        try:
-            await manager.create_user(
-                user_chat_id=message.chat.id,
-                user_phone_number=phone_number
-            )
-        except IntegrityError:
-            return await message.reply('Вы уже зарегистрировались')
-        await message.reply('Теперь введите код подтверждения.')
-        await Form.next()
+    try:
+        await data_manager.create_user(
+            user_chat_id=message.chat.id,
+            user_phone_number=message.text
+        )
+    except IntegrityError:
+        await data_manager.update_user_phone_number(
+            message.chat.id,
+            message.text
+        )
+    await redis.hdel('hash:phone_validation', message.chat.id)
+    while True:
+        await asyncio.sleep(1)
+        phone_status = await redis.hget('hash:phone_validation', message.chat.id)
+        print(phone_status)
+        if phone_status:
+            await redis.hdel('hash:phone_validation', message.chat.id)
+            print(await redis.hget('hash:phone_validation', message.chat.id))
+            if phone_status == 'False':
+                return await message.reply('Некорректный номер телефона')
+            await redis.hdel('hash:phone_validation', message.chat.id)
+            break
+    await message.reply('Теперь введите код подтверждения.')
+    await Form.next()
 
 
 @dp.message_handler(state=Form.conf_code)
-async def process_conf_code(message, state, redis):
+async def process_conf_code(message, redis):
     code = message.text[0:-1]
     await redis.hset(
-        'hash:id_conf_code', str(message.chat.id), code
+        KeySchema().conf_code_by_id(), str(message.chat.id), code
     )
     while True:
-        code_entered = await redis.smembers('set:code_entered')
+        code_entered = await redis.smembers(KeySchema().code_entered())
         if str(message.chat.id) in code_entered:
             await asyncio.sleep(5)
             user = await manager.get_user(message.chat.id)
@@ -337,7 +350,7 @@ async def process_conf_code(message, state, redis):
             else:
                 await message.reply('Код неверный.\n'
                                     'Введите код еще раз')
-            await redis.srem('set:code_entered', message.chat.id)
+            await redis.srem(KeySchema().code_entered(), message.chat.id)
             break
         await asyncio.sleep(0)
 
@@ -361,6 +374,8 @@ async def validate_birthday(date):
         return None
     else:
         return date
+
+
 
 
 if __name__ == '__main__':
