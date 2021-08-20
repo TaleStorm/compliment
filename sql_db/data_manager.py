@@ -120,6 +120,17 @@ class DataManager:
                 await session.commit()
         return True
 
+    async def update_user_phone_number(self, chat_id, phone_number):
+        async with self.async_session() as session:
+            async with session.begin():
+                query = select(User).where(
+                    User.chat_id == chat_id
+                )
+                result = await session.execute(query)
+                user = result.scalars().first()
+                user.phone_number = phone_number
+                await session.commit()
+
     async def delete_contact(self, contact_username, user_chat_id):
         async with self.async_session() as session:
             async with session.begin():

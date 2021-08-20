@@ -2,18 +2,18 @@ import asyncio
 
 import aioredis
 from pyrogram import Client
+from pyrogram.errors.exceptions.not_acceptable_406 import PhoneNumberInvalid
 
-from sql_db.data_manager import DataManager
 
-manager = DataManager('sqlite+aiosqlite:///test.db')
 
 
 class ClientManager:
-    def __init__(self, api_id, api_hash, manager=None):
+    def __init__(self, api_id, api_hash, data_manager):
         self.api_id = api_id
         self.api_hash = api_hash
         self.clients = {}
         self.redis = None
+        self.data_manager = data_manager
 
     async def add_client(self, client_id, client):
         self.clients[client_id] = client
@@ -24,7 +24,7 @@ class ClientManager:
             encoding='utf-8'
         )
         self.redis = aioredis.Redis(pool_or_conn=pool)
-        activated_clients = await manager.get_active_users()
+        activated_clients = await self.data_manager.get_active_users()
         for user in activated_clients:
             user_chat_id = user.chat_id
             client = Client(
@@ -39,7 +39,7 @@ class ClientManager:
         print(self.clients)
 
     async def clients_activate(self):
-        wait_activation = await manager.get_wait_activation_users()
+        wait_activation = await self.data_manager.get_wait_activation_users()
         tasks = []
         for user in wait_activation:
             tasks.append(asyncio.create_task(self.activate_client(user)))
@@ -59,13 +59,18 @@ class ClientManager:
                 client_id=user_chat_id
             )
         )
-        await client.start()
-        await client.stop()
-        await manager.set_client_activated_status(user_chat_id, True)
-        await self.add_client(f'{user_chat_id}', client)
+        try:
+            await client.start()
+        except PhoneNumberInvalid:
+            await self.redis.hset('hash:phone_validation', user_chat_id, 'False')
+        else:
+            await client.stop()
+            await self.data_manager.set_client_activated_status(user_chat_id, True)
+            await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
         async def _stab():
+            await self.redis.hset('hash:phone_validation', client_id, 'True')
             while True:
                 wrong_code = await self.redis.smembers('set:code_entered')
                 if client_id in wrong_code:

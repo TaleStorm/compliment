@@ -20,7 +20,8 @@ API_HASH = os.environ.get('API_HASH')
 
 client_manager = ClientManager(
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    data_manager=manager
 )
 
 

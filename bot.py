@@ -304,19 +304,33 @@ async def not_contact(message):
 
 
 @dp.message_handler(state=Form.phone_number)
-async def process_phone(message, state):
+async def process_phone(message, state, redis, data_manager=manager):
     async with state.proxy() as data:
         data['phone_number'] = message.text
-        phone_number = data['phone_number']
-        try:
-            await manager.create_user(
-                user_chat_id=message.chat.id,
-                user_phone_number=phone_number
-            )
-        except IntegrityError:
-            return await message.reply('Вы уже зарегистрировались')
-        await message.reply('Теперь введите код подтверждения.')
-        await Form.next()
+    try:
+        await data_manager.create_user(
+            user_chat_id=message.chat.id,
+            user_phone_number=message.text
+        )
+    except IntegrityError:
+        await data_manager.update_user_phone_number(
+            message.chat.id,
+            message.text
+        )
+    await redis.hdel('hash:phone_validation', message.chat.id)
+    while True:
+        await asyncio.sleep(1)
+        phone_status = await redis.hget('hash:phone_validation', message.chat.id)
+        print(phone_status)
+        if phone_status:
+            await redis.hdel('hash:phone_validation', message.chat.id)
+            print(await redis.hget('hash:phone_validation', message.chat.id))
+            if phone_status == 'False':
+                return await message.reply('Некорректный номер телефона')
+            await redis.hdel('hash:phone_validation', message.chat.id)
+            break
+    await message.reply('Теперь введите код подтверждения.')
+    await Form.next()
 
 
 @dp.message_handler(state=Form.conf_code)
@@ -360,6 +374,8 @@ async def validate_birthday(date):
         return None
     else:
         return date
+
+
 
 
 if __name__ == '__main__':
