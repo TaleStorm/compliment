@@ -62,6 +62,7 @@ class ClientManager:
         try:
             await client.start()
         except PhoneNumberInvalid:
+            await self.data_manager.delete_user(user_chat_id)
             await self.redis.hset('hash:phone_validation', user_chat_id, 'False')
         else:
             await client.stop()

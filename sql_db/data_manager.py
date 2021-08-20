@@ -142,3 +142,14 @@ class DataManager:
                 contact = result.scalars().first()
                 await session.delete(contact)
                 await session.commit()
+
+    async def delete_user(self, user_chat_id):
+        async with self.async_session() as session:
+            async with session.begin():
+                query = select(User).where(
+                    User.chat_id == user_chat_id
+                )
+                result = await session.execute(query)
+                user = result.scalars().first()
+                await session.delete(user)
+                await session.commit()
