@@ -1,12 +1,15 @@
+import asyncio
 import os
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
-import asyncio
-import aioredis
-from sql_db.data_manager import DataManager
-from redis_db.key_schema import KeySchema
-from clients_logic import set_messages, birthday_check, night_mode
+from unittest.mock import AsyncMock, patch
 
+import aioredis
+from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
+
+from clients_logic import (birthday_check, contact_exist_check, night_mode,
+                           set_messages)
+from redis_db.key_schema import KeySchema
+from sql_db.data_manager import DataManager
 from tests import constants as const
 
 
@@ -46,7 +49,11 @@ class ClientsLogicTest(IsolatedAsyncioTestCase):
     async def test_set_messages(self):
         first_query = await self.redis.hgetall(self.messages_table)
         self.assertFalse(first_query)
-        await set_messages(self.messages_table, self.redis, time_now=const.FAKE_TIME)
+        await set_messages(
+            self.messages_table,
+            self.redis,
+            time_now=const.FAKE_TIME
+        )
         messages = await self.redis.hgetall(self.messages_table)
         for message in messages:
             await self.redis.hdel(self.messages_table, message)
@@ -78,10 +85,52 @@ class ClientsLogicTest(IsolatedAsyncioTestCase):
     async def test_night_mode(self, mock_sleep):
         messages = await self.redis.hgetall(self.messages_table)
         self.assertFalse(messages)
-        await set_messages(self.messages_table, self.redis, time_now=const.FAKE_TIME)
+        await set_messages(
+            self.messages_table,
+            self.redis,
+            time_now=const.FAKE_TIME
+        )
         messages = await self.redis.hgetall(self.messages_table)
         self.assertTrue(messages)
         await night_mode(messages, self.redis, self.messages_table)
         messages = await self.redis.hgetall(self.messages_table)
         self.assertFalse(messages)
         mock_sleep.assert_called()
+
+    async def test_01_contact_exist_check(self):
+        # contact exist
+        mock_client = AsyncMock()
+        mock_info = AsyncMock(
+            first_name=const.CONTACT_FIRSTNAME,
+            last_name=const.CONTACT_LASTNAME
+        )
+        mock_client.get_users = AsyncMock(return_value=mock_info)
+        contact_username = self.contact.contact_username
+        await self.redis.sadd(KeySchema().check_contact(), contact_username)
+        contact_username = self.contact.contact_username
+        await contact_exist_check(mock_client, self.redis)
+        full_name = await self.redis.hget(
+            KeySchema().check_contact_status(),
+            contact_username
+        )
+        self.assertTrue(
+            full_name == f'{const.CONTACT_FIRSTNAME} {const.CONTACT_LASTNAME}'
+        )
+        await self.redis.hdel(
+            KeySchema().check_contact_status(),
+            contact_username
+        )
+
+        # contact not exist
+        mock_client = AsyncMock()
+        mock_client.get_users = AsyncMock(side_effect=UsernameNotOccupied)
+        await self.redis.sadd(KeySchema().check_contact(), contact_username)
+        await contact_exist_check(mock_client, self.redis)
+        exist_status = await self.redis.hget(
+            KeySchema().check_contact_status(),
+            contact_username
+        )
+        self.assertTrue(exist_status == 'False')
+        await self.redis.hdel(
+            KeySchema().check_contact_status(),
+            contact_username)
