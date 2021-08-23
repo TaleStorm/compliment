@@ -1,5 +1,4 @@
-from . import sql_db
-from . import redis_db
+from . import redis_db, sql_db
 
 __all__ = (
     'sql_db',

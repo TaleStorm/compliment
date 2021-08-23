@@ -1,5 +1,4 @@
-from . import data_manager
-from . import tables
+from . import data_manager, tables
 
 __all__ = (
     'data_manager',

@@ -5,8 +5,9 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import aioredis
 
-from bot_config.bot_messages import (add_contact, cmd_contacts, cmd_start, confirm_contact,
-                                     process_conf_code, process_contact, process_phone)
+from bot_config.bot_messages import (add_contact, cmd_contacts, cmd_start,
+                                     confirm_contact, process_conf_code,
+                                     process_contact, process_phone)
 from database.sql_db.data_manager import DataManager
 from tests import constants as const
 
@@ -109,7 +110,6 @@ class BotTest(IsolatedAsyncioTestCase):
             'контакта в формате ДД-ММ-ГГ',
             reply_markup=ANY
         )
-
 
         message_mock = AsyncMock(text='Нет')
         await confirm_contact(message_mock)

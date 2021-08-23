@@ -7,15 +7,13 @@ from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher.middlewares import LifetimeControllerMiddleware
-from aiogram.utils import executor
 from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove
 from dotenv import load_dotenv
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
-from database.sql_db.data_manager import DataManager
 from database.redis_db.key_schema import KeySchema
-
+from database.sql_db.data_manager import DataManager
 
 logger.add(
     'logs.json', format='{time} {level} {message}',
@@ -313,7 +311,10 @@ async def process_phone(message, state, redis, data_manager=manager):
     await redis.hdel('hash:phone_validation', message.chat.id)
     while True:
         await asyncio.sleep(1)
-        phone_status = await redis.hget('hash:phone_validation', message.chat.id)
+        phone_status = await redis.hget(
+            'hash:phone_validation',
+            message.chat.id
+        )
         if phone_status:
             await redis.hdel('hash:phone_validation', message.chat.id)
             if phone_status == 'False':

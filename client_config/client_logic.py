@@ -4,12 +4,12 @@ from datetime import datetime as dt
 from random import randint
 
 from dotenv import load_dotenv
+from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
 
 from bot_config import constants
-from database.redis_db.key_schema import KeySchema
 from client_config.client_manager import ClientManager
+from database.redis_db.key_schema import KeySchema
 from database.sql_db.data_manager import DataManager
-from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
 
 load_dotenv()
 
@@ -23,6 +23,7 @@ client_manager = ClientManager(
     api_hash=API_HASH,
     data_manager=manager
 )
+
 
 async def set_messages(table, redis, time_now=None):
     """
@@ -114,7 +115,11 @@ async def contact_exist_check(client, redis):
             contact_info = await client.get_users(contact)
 
         except UsernameNotOccupied:
-            await redis.hset(KeySchema().check_contact_status(), contact, 'False')
+            await redis.hset(
+                KeySchema().check_contact_status(),
+                contact,
+                'False'
+            )
         else:
             first_name = contact_info.first_name
             last_name = contact_info.last_name
@@ -126,7 +131,11 @@ async def contact_exist_check(client, redis):
                     full_name = first_name
             else:
                 full_name = first_name + ' ' + last_name
-            await redis.hset(KeySchema().check_contact_status(), contact, full_name)
+            await redis.hset(
+                KeySchema().check_contact_status(),
+                contact,
+                full_name
+            )
 
         finally:
             await redis.srem(KeySchema().check_contact(), contact)

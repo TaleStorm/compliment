@@ -3,8 +3,9 @@ import os
 
 from dotenv import load_dotenv
 
+from client_config.client_logic import (contact_exist_check,
+                                        contact_messages_check)
 from client_config.client_manager import ClientManager
-from client_config.client_logic import contact_exist_check, contact_messages_check
 from database.sql_db.data_manager import DataManager
 
 load_dotenv()

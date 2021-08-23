@@ -5,8 +5,6 @@ from pyrogram import Client
 from pyrogram.errors.exceptions.not_acceptable_406 import PhoneNumberInvalid
 
 
-
-
 class ClientManager:
     def __init__(self, api_id, api_hash, data_manager):
         self.api_id = api_id
@@ -63,10 +61,17 @@ class ClientManager:
             await client.start()
         except PhoneNumberInvalid:
             await self.data_manager.delete_user(user_chat_id)
-            await self.redis.hset('hash:phone_validation', user_chat_id, 'False')
+            await self.redis.hset(
+                'hash:phone_validation',
+                user_chat_id,
+                'False'
+            )
         else:
             await client.stop()
-            await self.data_manager.set_client_activated_status(user_chat_id, True)
+            await self.data_manager.set_client_activated_status(
+                user_chat_id,
+                True
+            )
             await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
