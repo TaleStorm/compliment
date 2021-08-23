@@ -57,7 +57,7 @@ except Exception as e:
     logger.exception('Ошибка при создании диспетчера: ', e)
     raise SystemExit()
 
-manager = DataManager('sqlite+aiosqlite:///test.db')
+manager = DataManager('sqlite+aiosqlite:///compliment.db')
 async_session = manager.async_session
 
 
@@ -348,6 +348,7 @@ async def process_conf_code(message, redis, data_manager=manager):
 
 
 async def contacts_list(chat_id, data_manager=manager):
+    """Returns str message of users contacts."""
     user_contacts = await data_manager.get_client_contacts(chat_id)
     if not user_contacts:
         return None
@@ -360,6 +361,7 @@ async def contacts_list(chat_id, data_manager=manager):
 
 
 async def validate_birthday(date):
+    """Is used to validate birthday."""
     try:
         dt.strptime(date, '%d-%m-%y')
     except ValueError:

@@ -14,9 +14,11 @@ class ClientManager:
         self.data_manager = data_manager
 
     async def add_client(self, client_id, client):
+        """Добавляет клиент в аттрибуты класса."""
         self.clients[client_id] = client
 
     async def on_startup(self):
+        """Активирует существующие клиенты при запуске программы."""
         pool = await aioredis.create_pool(
             "redis://localhost",
             encoding='utf-8'
@@ -37,6 +39,7 @@ class ClientManager:
         print(self.clients)
 
     async def clients_activate(self):
+        """Находит клиенты, которые надо активировать и создает задачу на активацию."""
         wait_activation = await self.data_manager.get_wait_activation_users()
         tasks = []
         for user in wait_activation:
@@ -46,6 +49,7 @@ class ClientManager:
             await asyncio.wait(tasks)
 
     async def activate_client(self, user):
+        """Активирует клиент."""
         user_chat_id = user.chat_id
         phone_number = user.phone_number
         client = Client(
@@ -75,6 +79,7 @@ class ClientManager:
             await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
+        """Ждет от бота данные с кодом в Redis."""
         async def _stab():
             await self.redis.hset('hash:phone_validation', client_id, 'True')
             while True:

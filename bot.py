@@ -1,4 +1,5 @@
-from bot_config.bot_messages import RedisMiddleware, dp, executor, on_startup
+from aiogram import executor
+from bot_config.bot_messages import RedisMiddleware, dp, on_startup
 
 if __name__ == '__main__':
     dp.middleware.setup(RedisMiddleware())
