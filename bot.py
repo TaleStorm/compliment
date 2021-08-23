@@ -124,8 +124,8 @@ async def cmd_rerun(message):
 
 
 @dp.message_handler(commands='contacts', state=Form.activated)
-async def cmd_contacts(message):
-    message_contacts = await contacts_list(message.chat.id)
+async def cmd_contacts(message, data_manager=manager):
+    message_contacts = await contacts_list(message.chat.id, data_manager)
     if message_contacts is None:
         return await message.reply('Вы еще не добавили ни один контакт.\n'
                                    'Что бы добавить контакт введите /add')
@@ -279,10 +279,7 @@ async def process_contact_birthday(message, state):
         contact_username = data['contact_username']
     birthday = await validate_birthday(date=message.text)
     if birthday is None:
-        await bot.send_message(
-            message.chat.id,
-            'Введите дату в правильном формате'
-        )
+        await message.reply('Введите дату в правильном формате')
     try:
         await manager.create_contact(
             contact_username=contact_username,
@@ -296,11 +293,6 @@ async def process_contact_birthday(message, state):
                             'от вас сообщения')
     finally:
         await Form.activated.set()
-
-
-@dp.message_handler(state=FormAddContact.username_input)
-async def not_contact(message):
-    await message.reply('Отправьте именно контак из контактной книжки!')
 
 
 @dp.message_handler(state=Form.phone_number)
@@ -321,10 +313,8 @@ async def process_phone(message, state, redis, data_manager=manager):
     while True:
         await asyncio.sleep(1)
         phone_status = await redis.hget('hash:phone_validation', message.chat.id)
-        print(phone_status)
         if phone_status:
             await redis.hdel('hash:phone_validation', message.chat.id)
-            print(await redis.hget('hash:phone_validation', message.chat.id))
             if phone_status == 'False':
                 return await message.reply('Некорректный номер телефона')
             await redis.hdel('hash:phone_validation', message.chat.id)
@@ -334,7 +324,7 @@ async def process_phone(message, state, redis, data_manager=manager):
 
 
 @dp.message_handler(state=Form.conf_code)
-async def process_conf_code(message, redis):
+async def process_conf_code(message, redis, data_manager=manager):
     code = message.text[0:-1]
     await redis.hset(
         KeySchema().conf_code_by_id(), str(message.chat.id), code
@@ -343,7 +333,7 @@ async def process_conf_code(message, redis):
         code_entered = await redis.smembers(KeySchema().code_entered())
         if str(message.chat.id) in code_entered:
             await asyncio.sleep(5)
-            user = await manager.get_user(message.chat.id)
+            user = await data_manager.get_user(message.chat.id)
             if user.is_activated == True:
                 await message.reply('Вы успешно зарегистрировались')
                 await Form.next()
@@ -355,8 +345,8 @@ async def process_conf_code(message, redis):
         await asyncio.sleep(0)
 
 
-async def contacts_list(chat_id):
-    user_contacts = await manager.get_client_contacts(chat_id)
+async def contacts_list(chat_id, data_manager=manager):
+    user_contacts = await data_manager.get_client_contacts(chat_id)
     if not user_contacts:
         return None
     message_contacts = 'Список ваших контактов:\n'
