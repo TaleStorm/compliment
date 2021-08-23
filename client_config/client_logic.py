@@ -5,10 +5,10 @@ from random import randint
 
 from dotenv import load_dotenv
 
-import constants
-from redis_db.key_schema import KeySchema
-from client_manager import ClientManager
-from sql_db.data_manager import DataManager
+from bot_config import constants
+from database.redis_db.key_schema import KeySchema
+from client_config.client_manager import ClientManager
+from database.sql_db.data_manager import DataManager
 from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
 
 load_dotenv()
@@ -23,27 +23,6 @@ client_manager = ClientManager(
     api_hash=API_HASH,
     data_manager=manager
 )
-
-
-async def main():
-    await client_manager.on_startup()
-    redis = client_manager.redis
-    while True:
-        await client_manager.clients_activate()
-        for user_chat_id, client in client_manager.clients.items():
-            client_contacts = await manager.get_client_contacts(user_chat_id)
-            await client.start()
-            await contact_exist_check(client, redis)
-            for contact in client_contacts:
-                await contact_messages_check(
-                    client=client,
-                    contact=contact,
-                    user_chat_id=user_chat_id,
-                    redis=redis
-                )
-            await client.stop()
-            await asyncio.sleep(1)
-
 
 async def set_messages(table, redis, time_now=None):
     """
@@ -151,6 +130,3 @@ async def contact_exist_check(client, redis):
 
         finally:
             await redis.srem(KeySchema().check_contact(), contact)
-
-if __name__ == '__main__':
-    asyncio.run(main())

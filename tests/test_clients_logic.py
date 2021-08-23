@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, patch
 import aioredis
 from pyrogram.errors.exceptions.bad_request_400 import UsernameNotOccupied
 
-from clients_logic import (birthday_check, contact_exist_check, night_mode,
+from client_config.client_logic import (birthday_check, contact_exist_check, night_mode,
                            set_messages)
-from redis_db.key_schema import KeySchema
-from sql_db.data_manager import DataManager
+from database.redis_db.key_schema import KeySchema
+from database.sql_db.data_manager import DataManager
 from tests import constants as const
 
 

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 
-from sql_db.tables import Base, User, UserContacts
+from database.sql_db.tables import Base, User, UserContacts
 
 
 class DataManager:
