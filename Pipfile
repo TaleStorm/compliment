@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+aiogram = "~=2.14.1"
+python-dotenv = "~=0.18.0"
+psycopg2-binary = "==2.9.1"
+aioredis = "*"
+loguru = "*"
+sqlalchemy = "*"
+tgcrypto = "*"
+pyrogram-v-krimsn = {editable = true, git = "https://github.com/KrimsN/pyrogram.git"}
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"
