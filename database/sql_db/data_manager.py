@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
 
-from sql_db.tables import Base, User, UserContacts
+from database.sql_db.tables import Base, User, UserContacts
 
 
 class DataManager:
@@ -21,6 +21,7 @@ class DataManager:
             await conn.run_sync(Base.metadata.create_all)
 
     async def get_active_users(self):
+        """Возвращает список активных пользователей."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(
@@ -31,6 +32,7 @@ class DataManager:
                 return result.scalars().all()
 
     async def get_wait_activation_users(self):
+        """Возвращает список аккаунтов, которые надо активировать."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(
@@ -40,6 +42,7 @@ class DataManager:
                 return result.scalars().all()
 
     async def get_user(self, user_chat_id):
+        """Возвращает объект юзера по chat_id."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(User.chat_id == user_chat_id)
@@ -47,6 +50,7 @@ class DataManager:
                 return result.scalars().first()
 
     async def get_contact(self, contact_username):
+        """Возвращает объект контакта по его username."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(
@@ -55,6 +59,7 @@ class DataManager:
                 return result.scalars().first()
 
     async def get_client_contacts(self, user_chat_id):
+        """Возвращает список контактов клиента по его chat_id."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(
@@ -64,6 +69,7 @@ class DataManager:
                 return result.scalars().all()
 
     async def create_user(self, user_chat_id, user_phone_number):
+        """Создает объект юзера в БД."""
         async with self.async_session() as session:
             async with session.begin():
                 user = User(
@@ -77,6 +83,7 @@ class DataManager:
                              contact_username,
                              contact_birthday,
                              user_chat_id):
+        """Создает объект контакта в БД."""
         contact = UserContacts(
             contact_username=contact_username,
             birthday=contact_birthday,
@@ -88,6 +95,7 @@ class DataManager:
                 await session.commit()
 
     async def set_client_activated_status(self, user_chat_id, status: bool):
+        """Изменяет статус активации клиента пользователя."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(User.chat_id == user_chat_id)
@@ -97,6 +105,7 @@ class DataManager:
                 await session.commit()
 
     async def set_user_active_status(self, user_chat_id, status: bool):
+        """Изменяет статус пользователя (активен/неактивен)."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(User.chat_id == str(user_chat_id))
@@ -109,6 +118,7 @@ class DataManager:
                                           contact_username: str,
                                           status: bool
                                           ):
+        """Изменяет статус поздравления контакта."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(
@@ -121,6 +131,7 @@ class DataManager:
         return True
 
     async def update_user_phone_number(self, chat_id, phone_number):
+        """Иземеняет номер телефона пользователя."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(
@@ -132,6 +143,7 @@ class DataManager:
                 await session.commit()
 
     async def delete_contact(self, contact_username, user_chat_id):
+        """Удаляет контакт."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(UserContacts).where(
@@ -144,6 +156,7 @@ class DataManager:
                 await session.commit()
 
     async def delete_user(self, user_chat_id):
+        """Удаляет пользователя."""
         async with self.async_session() as session:
             async with session.begin():
                 query = select(User).where(

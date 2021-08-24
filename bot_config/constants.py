@@ -1,4 +1,5 @@
 from datetime import time
+
 # messages
 BIRTHDAY = 'С днём рождения!'
 

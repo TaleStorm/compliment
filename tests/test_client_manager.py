@@ -7,8 +7,8 @@ import aioredis
 import pyrogram
 from pyrogram.errors.exceptions.not_acceptable_406 import PhoneNumberInvalid
 
-from client_manager import ClientManager
-from sql_db.data_manager import DataManager
+from client_config.client_manager import ClientManager
+from database.sql_db.data_manager import DataManager
 from tests import constants as const
 
 

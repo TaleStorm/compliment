@@ -3,8 +3,8 @@ from unittest import IsolatedAsyncioTestCase
 
 from sqlalchemy.future import select
 
-from sql_db.data_manager import DataManager
-from sql_db.tables import User, UserContacts
+from database.sql_db.data_manager import DataManager
+from database.sql_db.tables import User, UserContacts
 from tests import constants as const
 
 

@@ -5,10 +5,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import aioredis
 
-from bot import (add_contact, cmd_contacts, cmd_start, confirm_contact,
-                 process_conf_code, process_contact, process_phone)
-from redis_db.key_schema import KeySchema
-from sql_db.data_manager import DataManager
+from bot_config.bot_messages import (add_contact, cmd_contacts, cmd_start,
+                                     confirm_contact, process_conf_code,
+                                     process_contact, process_phone)
+from database.sql_db.data_manager import DataManager
 from tests import constants as const
 
 
@@ -29,7 +29,7 @@ class BotTest(IsolatedAsyncioTestCase):
         path_db = os.path.join(const.TESTS_PATH, const.TEST_DB_NAME)
         os.remove(path_db)
 
-    @patch('bot.Form', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.Form', new_callable=AsyncMock)
     async def test_01_cmd_start(self, mock_form):
         message_mock = AsyncMock('/start')
         message_mock.chat = AsyncMock(id=const.USER_CHAT_ID)
@@ -37,7 +37,7 @@ class BotTest(IsolatedAsyncioTestCase):
         await cmd_start(message_mock)
         message_mock.reply.assert_called_with('Введите номер телефона')
 
-    @patch('bot.Form', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.Form', new_callable=AsyncMock)
     async def test_02_process_phone(self, mock_form):
         message_mock = AsyncMock(text=const.USER_PHONE_NUMBER)
         message_mock.chat = AsyncMock(id=const.USER_CHAT_ID)
@@ -54,7 +54,7 @@ class BotTest(IsolatedAsyncioTestCase):
             'Теперь введите код подтверждения.'
         )
 
-    @patch('bot.Form', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.Form', new_callable=AsyncMock)
     @patch('asyncio.sleep')
     async def test_03_process_conf_code(self, mock_form, mock_sleep):
         message_mock = AsyncMock(text=const.USER_CONF_CODE)
@@ -72,7 +72,7 @@ class BotTest(IsolatedAsyncioTestCase):
         await process_conf_code(message_mock, redis, self.data_manager)
         message_mock.reply.assert_called_with('Вы успешно зарегистрировались')
 
-    @patch('bot.FormAddContact', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.FormAddContact', new_callable=AsyncMock)
     async def test_04_cmd_add_contact(self, mock_form):
         message_mock = AsyncMock()
         await add_contact(message_mock)
@@ -81,7 +81,7 @@ class BotTest(IsolatedAsyncioTestCase):
             '"@username"'
         )
 
-    @patch('bot.FormAddContact', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.FormAddContact', new_callable=AsyncMock)
     async def test_05_process_contact(self, mock_form):
         message_mock = AsyncMock(text=const.CONTACT_USERNAME)
         state_mock = MagicMock()
@@ -100,8 +100,8 @@ class BotTest(IsolatedAsyncioTestCase):
             reply_markup=ANY
         )
 
-    @patch('bot.FormAddContact', new_callable=AsyncMock)
-    @patch('bot.Form', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.FormAddContact', new_callable=AsyncMock)
+    @patch('bot_config.bot_messages.Form', new_callable=AsyncMock)
     async def test_06_confirm_contact(self, mock_form, mock_form_2):
         message_mock = AsyncMock(text='Да')
         await confirm_contact(message_mock)
@@ -110,7 +110,6 @@ class BotTest(IsolatedAsyncioTestCase):
             'контакта в формате ДД-ММ-ГГ',
             reply_markup=ANY
         )
-
 
         message_mock = AsyncMock(text='Нет')
         await confirm_contact(message_mock)

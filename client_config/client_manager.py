@@ -5,8 +5,6 @@ from pyrogram import Client
 from pyrogram.errors.exceptions.not_acceptable_406 import PhoneNumberInvalid
 
 
-
-
 class ClientManager:
     def __init__(self, api_id, api_hash, data_manager):
         self.api_id = api_id
@@ -16,9 +14,11 @@ class ClientManager:
         self.data_manager = data_manager
 
     async def add_client(self, client_id, client):
+        """Добавляет клиент в аттрибуты класса."""
         self.clients[client_id] = client
 
     async def on_startup(self):
+        """Активирует существующие клиенты при запуске программы."""
         pool = await aioredis.create_pool(
             "redis://localhost",
             encoding='utf-8'
@@ -39,6 +39,7 @@ class ClientManager:
         print(self.clients)
 
     async def clients_activate(self):
+        """Находит клиенты, которые надо активировать и создает задачу на активацию."""
         wait_activation = await self.data_manager.get_wait_activation_users()
         tasks = []
         for user in wait_activation:
@@ -48,6 +49,7 @@ class ClientManager:
             await asyncio.wait(tasks)
 
     async def activate_client(self, user):
+        """Активирует клиент."""
         user_chat_id = user.chat_id
         phone_number = user.phone_number
         client = Client(
@@ -63,13 +65,21 @@ class ClientManager:
             await client.start()
         except PhoneNumberInvalid:
             await self.data_manager.delete_user(user_chat_id)
-            await self.redis.hset('hash:phone_validation', user_chat_id, 'False')
+            await self.redis.hset(
+                'hash:phone_validation',
+                user_chat_id,
+                'False'
+            )
         else:
             await client.stop()
-            await self.data_manager.set_client_activated_status(user_chat_id, True)
+            await self.data_manager.set_client_activated_status(
+                user_chat_id,
+                True
+            )
             await self.add_client(f'{user_chat_id}', client)
 
     async def get_confirmation_code(self, client_id):
+        """Ждет от бота данные с кодом в Redis."""
         async def _stab():
             await self.redis.hset('hash:phone_validation', client_id, 'True')
             while True:
