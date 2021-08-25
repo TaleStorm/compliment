@@ -16,7 +16,6 @@ async def main():
         await client_manager.clients_activate()
         for user_chat_id, client in client_manager.clients.items():
             client_contacts = await manager.get_client_contacts(user_chat_id)
-            await client.start()
             await contact_exist_check(client, redis)
             for contact in client_contacts:
                 await contact_messages_check(
@@ -25,7 +24,10 @@ async def main():
                     user_chat_id=user_chat_id,
                     redis=redis
                 )
-            await client.stop()
+            try:
+                await client.stop()
+            except ConnectionError:
+                pass
             await asyncio.sleep(1)
 
 

@@ -14,7 +14,7 @@ from database.sql_db.data_manager import DataManager
 
 load_dotenv()
 
-manager = DataManager('sqlite+aiosqlite:///test.db')
+manager = DataManager('sqlite+aiosqlite:///compliment.db')
 
 logger.add(
     'logs.json', format='{time} {level} {message}',
@@ -97,6 +97,10 @@ async def contact_messages_check(client, contact, user_chat_id, redis):
     messages = await redis.hgetall(table)
     need_to_congratulate = await birthday_check(contact, date_today)
     if need_to_congratulate:
+        try:
+            client.start()
+        except ConnectionError:
+            pass
         await client.send_message(
             chat_id=contact_username,
             text=constants.BIRTHDAY
@@ -112,6 +116,10 @@ async def contact_messages_check(client, contact, user_chat_id, redis):
     time_now_str = time_now.strftime('%H:%M')
     message_now = await redis.hget(table, time_now_str)
     if message_now:
+        try:
+            client.start()
+        except ConnectionError:
+            pass
         await client.send_message(f'{contact_username}', message_now)
         await redis.hdel(table, time_now_str)
 
