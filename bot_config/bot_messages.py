@@ -321,7 +321,8 @@ async def process_phone(message, state, redis, data_manager=manager):
                 return await message.reply('Некорректный номер телефона')
             await redis.hdel('hash:phone_validation', message.chat.id)
             break
-    await message.reply('Теперь введите код подтверждения.')
+    await message.reply('Теперь введите код подтверждения c '
+                        'одним любым дополнительным символом в конце.')
     await Form.next()
 
 
