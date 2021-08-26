@@ -98,7 +98,7 @@ async def contact_messages_check(client, contact, user_chat_id, redis):
     need_to_congratulate = await birthday_check(contact, date_today)
     if need_to_congratulate:
         try:
-            client.start()
+            await client.start()
         except ConnectionError:
             pass
         await client.send_message(
@@ -117,7 +117,7 @@ async def contact_messages_check(client, contact, user_chat_id, redis):
     message_now = await redis.hget(table, time_now_str)
     if message_now:
         try:
-            client.start()
+            await client.start()
         except ConnectionError:
             pass
         await client.send_message(f'{contact_username}', message_now)
